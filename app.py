@@ -316,11 +316,30 @@ with tab3:
                 lottery_spam = "free" in text_lower and any(w in text_lower for w in ["won", "prize", "iphone", "claim"])
                 
                 # Case 2: Phishing / Account Security / Urgency
-                urgency_words = ["suspend", "suspension", "restrict", "restricted", "closure", "deactivate", "deactivation",
-                                 "unusual login", "security alert", "action required", "blocked", "compromised", "unauthorized"]
+                # Direct High-Risk Threat Keywords (trigger override directly with action request)
+                threat_words = ["suspend", "suspension", "restrict", "restricted", "closure", "deactivate", "deactivation",
+                                "unusual login", "security alert", "action required", "blocked", "compromised", "unauthorized"]
+                
+                # Soft / Polite Phishing words (higher False Positive risk; require link CTA and ML model backing)
+                soft_words = ["deadline", "validate", "validation", "upgrade", "uninterrupted", "enhancement"]
                 action_words = ["verify", "verification", "confirm", "update", "restore", "portal", "link", "click here", "login"]
                 
-                phishing_spam = any(w in text_lower for w in urgency_words) and any(w in text_lower for w in action_words)
+                # Check for call-to-action indicators (references to links, forms, buttons)
+                link_cta = ["link", "url", "http", "click", "below", "button", "visit", "form", "portal", "website"]
+                has_link_instruction = any(w in text_lower for w in link_cta)
+                
+                # Rule 2a: Standard high-risk phishing match
+                phishing_spam_urgent = any(w in text_lower for w in threat_words) and any(w in text_lower for w in action_words)
+                
+                # Rule 2b: Soft-phishing match (requires soft word + action word + link CTA + ML model suspicion)
+                phishing_spam_soft = (
+                    any(w in text_lower for w in soft_words) and 
+                    any(w in text_lower for w in action_words) and 
+                    has_link_instruction and 
+                    prediction == 1
+                )
+                
+                phishing_spam = phishing_spam_urgent or phishing_spam_soft
                 
                 if lottery_spam or phishing_spam:
                     prediction = 1
