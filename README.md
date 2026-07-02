@@ -1,41 +1,31 @@
-# AI-Driven Phishing Email Detection Using NLP
+# PhishGuard AI: Advanced Phishing Detection System
 
 This repository contains a complete, end-to-end B.Tech AIML semester project that detects phishing/spam emails using Natural Language Processing (NLP) and Machine Learning techniques.
 
 ## 🛡️ Project Overview
-Phishing emails are one of the most common vectors for cyberattacks. This project demonstrates how text classification algorithms can analyze text structure, patterns, and vocabulary to accurately distinguish between **Spam (Phishing)** and **Ham (Legitimate)** emails.
+Phishing emails are one of the most common vectors for cyberattacks. **PhishGuard AI** demonstrates how text classification algorithms can analyze text structure, patterns, and vocabulary to accurately distinguish between **Spam (Phishing)** and **Ham (Legitimate)** emails.
 
-Using the provided dataset `spam.csv`, the project achieves **98.45% accuracy** and **94.33% F1-score** with a Support Vector Machine (LinearSVC) model.
+Using the provided dataset `enron_spam_data.csv`, the project achieves **99.13% accuracy** and **99.10% F1-score** with a Support Vector Machine (LinearSVC) model.
 
 ---
 
 ## 📁 Repository Structure
 ```text
-├── spam.csv                 # Primary dataset
+├── enron_spam_data.csv      # Primary dataset (Enron Email Dataset)
 ├── requirements.txt         # Project dependencies
 ├── app.py                   # Streamlit web application
 ├── README.md                # Project documentation
-├── Project_Report.md        # Comprehensive 15-page project report
+├── Project_Report.md        # Comprehensive project report
+├── train.py                 # Script to retrain the SVM model
+├── generate_plots.py        # Script to generate visualizations
 ├── phishing_email_detection.ipynb  # Interactive Jupyter Notebook
 ├── models/
-│   ├── best_model.pkl       # Serialized best-performing ML model
-│   ├── tfidf_vectorizer.pkl # Serialized TF-IDF Vectorizer
-│   └── experiments_summary.json # JSON containing metrics of all models
-└── visualizations/          # Generated EDA and evaluation graphs
-    ├── class_distribution.png
-    ├── class_distribution_pie.png
-    ├── email_length_distribution.png
-    ├── word_count_distribution.png
-    ├── top_20_words.png
-    ├── spam_wordcloud.png
-    ├── ham_wordcloud.png
-    ├── model_accuracy_comparison.png
-    ├── model_precision_comparison.png
-    ├── model_recall_comparison.png
-    ├── model_f1_comparison.png
-    ├── confusion_matrices.png
-    ├── rf_feature_importance.png
-    └── roc_curves.png
+│   ├── best_model.pkl       # Serialized best-performing ML model (SVM)
+│   └── tfidf_vectorizer.pkl # Serialized TF-IDF Vectorizer
+└── visualizations/          # Generated evaluation graphs
+    ├── enron_class_distribution.png
+    ├── enron_confusion_matrix.png
+    └── enron_wordclouds.png
 ```
 
 ---
@@ -95,16 +85,12 @@ This will spin up a local development server and open the web interface in your 
 
 | Machine Learning Model | Accuracy | Precision | Recall | F1 Score |
 | :--- | :---: | :---: | :---: | :---: |
-| **Support Vector Machine (LinearSVC)** | **98.45%** | **97.08%** | **91.72%** | **94.33%** |
-| **Multinomial Naive Bayes** | 97.68% | 95.49% | 87.59% | 91.37% |
-| **Logistic Regression** | 97.58% | 94.78% | 87.59% | 91.04% |
-| **Random Forest** | 97.39% | 99.17% | 82.07% | 89.81% |
-| **Decision Tree** | 94.68% | 80.82% | 81.38% | 81.10% |
+| **Support Vector Machine (LinearSVC)** | **99.13%** | **98.68%** | **99.52%** | **99.10%** |
+| **Logistic Regression** | 98.92% | 98.28% | 99.49% | 98.88% |
+| **Multinomial Naive Bayes** | 98.85% | 98.90% | 98.70% | 98.80% |
+| **Random Forest** | 98.57% | 98.13% | 98.91% | 98.52% |
+| **Decision Tree** | 95.80% | 96.19% | 95.01% | 95.60% |
 
 *The best model was chosen based on its **F1-score**, which balances classification accuracy on both minority (Spam) and majority (Ham) classes.*
 
----
 
-## 👤 Author
-* **Submitted by:** Ayush
-* **Title:** B.Tech Artificial Intelligence and Machine Learning Semester Project

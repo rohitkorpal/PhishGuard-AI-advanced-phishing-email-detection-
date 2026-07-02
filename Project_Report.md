@@ -1,6 +1,6 @@
 # Project Report
 
-## TITLE: AI-Driven Phishing Email Detection Using Natural Language Processing (NLP)
+## TITLE: PhishGuard AI: Advanced Phishing Email Detection System Using NLP
 
 **Course:** B.Tech Artificial Intelligence and Machine Learning (AIML)  
 **Semester:** Final Year Project  
@@ -13,9 +13,9 @@
 
 Phishing is one of the most persistent and dangerous cybersecurity threats, leading to significant financial losses and data breaches worldwide. Attackers exploit human vulnerabilities by sending deceptive emails that mimic legitimate communications, coercing victims into revealing sensitive credentials, installing malware, or authorization of unauthorized transactions. Traditional signature-based detection systems fall short against modern, dynamic phishing campaigns that utilize sophisticated social engineering tactics. 
 
-This project presents an end-to-end Machine Learning (ML) and Natural Language Processing (NLP) framework designed to identify and classify phishing emails automatically. Utilizing a public dataset of 5,572 emails (`spam.csv`), we perform rigorous data cleaning and textual preprocessing—including HTML tag stripping, URL and number removal, tokenization, stopword removal, and lemmatization. For feature extraction, we evaluate and compare two vectorization techniques: Bag of Words (CountVectorizer) and Term Frequency-Inverse Document Frequency (TF-IDF). Five distinct supervised learning algorithms are trained and compared: Logistic Regression, Multinomial Naive Bayes, Random Forest, Decision Tree, and Support Vector Machine (LinearSVC). 
+This project presents an end-to-end Machine Learning (ML) and Natural Language Processing (NLP) framework designed to identify and classify phishing emails automatically. Utilizing a public dataset of 33,716 emails (`enron_spam_data.csv`), we perform rigorous data cleaning and textual preprocessing—including HTML tag stripping, URL and number removal, tokenization, stopword removal, and lemmatization. For feature extraction, we evaluate and compare two vectorization techniques: Bag of Words (CountVectorizer) and Term Frequency-Inverse Document Frequency (TF-IDF). Five distinct supervised learning algorithms are trained and compared: Logistic Regression, Multinomial Naive Bayes, Random Forest, Decision Tree, and Support Vector Machine (LinearSVC). 
 
-Our experimental findings show that the Support Vector Machine (LinearSVC) model utilizing TF-IDF features achieves the best classification performance, boasting a validation accuracy of **97.78%** and an F1-score of **91.64%**. To transition this research into a practical utility, a lightweight web application is developed using Streamlit, permitting users to perform real-time security assessment of email content.
+Our experimental findings show that the Support Vector Machine (LinearSVC) model utilizing TF-IDF features achieves the best classification performance, boasting a validation accuracy of **99.13%** and an F1-score of **99.10%**. To transition this research into a practical utility, a lightweight web application is developed using Streamlit, permitting users to perform real-time security assessment of email content.
 
 ---
 
@@ -68,33 +68,33 @@ The primary objectives of this semester project are:
 
 ### 4. Dataset Description
 
-The project uses the `spam.csv` file, which is based on the SMS Spam Collection dataset, representing a standard benchmark for text classification tasks.
+The project uses the `enron_spam_data.csv` file, which is based on the Enron Email Dataset, representing a standard benchmark for email text classification tasks.
 
 #### 4.1 Raw Dataset Characteristics
 An initial programmatic inspection of the raw dataset yields the following characteristics:
-* **Total Records:** 5,572 rows
+* **Total Records:** 33,716 rows
 * **Total Columns:** 5 columns
 * **Column Labels:**
-  1. `v1`: The target label, indicating whether the message is `ham` or `spam`.
-  2. `v2`: The raw textual content of the message.
-  3. `Unnamed: 2`: Missing or noise data (5,522 null values).
-  4. `Unnamed: 3`: Missing or noise data (5,560 null values).
-  5. `Unnamed: 4`: Missing or noise data (5,566 null values).
+  1. `Message ID`: Unique identifier for each email.
+  2. `Subject`: The subject line of the email (289 nulls).
+  3. `Message`: The main body content of the email (371 nulls).
+  4. `Spam/Ham`: The target classification label (`spam` or `ham`).
+  5. `Date`: The timestamp of when the email was sent.
 
 #### 4.2 Data Cleansing and Label Encoding
-During the cleaning phase, the three unnamed columns (`Unnamed: 2`, `Unnamed: 3`, `Unnamed: 4`) are discarded since they represent parsing anomalies and contain virtually no information. 
+During the cleaning phase, we combine the `Subject` and `Message` columns into a single text column by replacing any nulls with empty spaces. This ensures the model learns features from both the subject lines and the email body.
 
-Duplicate rows are also inspected. There are **403 duplicate records** in the raw text. If duplicate rows are left in the training and testing sets, it can lead to data leakage and artificially inflated performance scores. Removing these duplicates results in a cleaned corpus of **5,169 unique records**.
+Duplicate rows and null content rows are also discarded to prevent data leakage and artificially inflated performance scores. Removing these rows results in a cleaned corpus of **30,494 unique records**.
 
-The textual label in the target column `v1` is encoded into a binary format:
-$$\text{Label}(v1) = \begin{cases} 0, & \text{if } v1 = \text{"ham"} \\ 1, & \text{if } v1 = \text{"spam"} \end{cases}$$
+The textual label in the target column `Spam/Ham` is encoded into a binary format:
+$$\text{Label}(\text{Spam/Ham}) = \begin{cases} 0, & \text{if } \text{Spam/Ham} = \text{"ham"} \\ 1, & \text{if } \text{Spam/Ham} = \text{"spam"} \end{cases}$$
 
 #### 4.3 Class Distribution Analysis
-The final dataset is characterized by a significant class imbalance, which is typical for real-world phishing detection domains (where legitimate traffic vastly outnumbers malicious inputs).
+The final dataset is well-balanced, which provides a highly stable training domain for our machine learning classifiers.
 
-* **Ham (Legitimate):** 4,516 messages (87.37%)
-* **Spam (Phishing):** 653 messages (12.63%)
-* **Ratio:** Approximately 7:1 (Legitimate to Phishing)
+* **Ham (Legitimate):** 15,910 emails (52.17%)
+* **Spam (Phishing):** 14,584 emails (47.83%)
+* **Ratio:** Approximately 1.1:1 (Legitimate to Phishing)
 
 This severe class imbalance implies that "Accuracy" alone is an insufficient metric. A naive classifier that predicts "ham" for every input would achieve an accuracy of 87.37% but fail completely at security protection. Therefore, **F1-score**, **Precision**, and **Recall** are selected as primary evaluation criteria.
 
@@ -246,24 +246,15 @@ The tables below present a comprehensive comparison of model performance on the 
 ##### Table 1: Model Comparison using TF-IDF Features
 | Model Name | Accuracy | Precision | Recall | F1-Score |
 | :--- | :---: | :---: | :---: | :---: |
-| **Support Vector Machine (LinearSVC)** | **98.45%** | **97.08%** | **91.72%** | **94.33%** |
-| **Multinomial Naive Bayes** | 97.68% | 95.49% | 87.59% | 91.37% |
-| **Logistic Regression** | 97.58% | 94.78% | 87.59% | 91.04% |
-| **Random Forest** | 97.39% | 99.17% | 82.07% | 89.81% |
-| **Decision Tree** | 94.68% | 80.82% | 81.38% | 81.10% |
-
-##### Table 2: Model Comparison using CountVectorizer Features
-| Model Name | Accuracy | Precision | Recall | F1-Score |
-| :--- | :---: | :---: | :---: | :---: |
-| **Logistic Regression** | 97.87% | 99.20% | 85.52% | 91.85% |
-| **Multinomial Naive Bayes** | 97.78% | 93.57% | 90.34% | 91.93% |
-| **Support Vector Machine (LinearSVC)** | 97.78% | 98.41% | 85.52% | 91.51% |
-| **Random Forest** | 96.71% | 99.12% | 77.24% | 86.82% |
-| **Decision Tree** | 94.29% | 81.62% | 76.55% | 79.00% |
+| **Support Vector Machine (LinearSVC)** | **99.13%** | **98.68%** | **99.52%** | **99.10%** |
+| **Logistic Regression** | 98.92% | 98.28% | 99.49% | 98.88% |
+| **Multinomial Naive Bayes** | 98.85% | 98.90% | 98.70% | 98.80% |
+| **Random Forest** | 98.57% | 98.13% | 98.91% | 98.52% |
+| **Decision Tree** | 95.80% | 96.19% | 95.01% | 95.60% |
 
 #### 10.2 Discussion and Best Model Selection
-1. **Performance with TF-IDF:** On the TF-IDF representation, the Linear SVC model outperformed all others with an F1-score of **94.33%** and an accuracy of **98.45%**. It successfully detected 133 out of 145 spam messages (91.72% Recall) while generating only 4 false positives (97.08% Precision).
-2. **Performance with CountVectorizer:** CountVectorizer performs well on this specific dataset because the dataset consists of short messages where the presence and count of key words (like "free", "claim", "prize") are strong spam signals. However, TF-IDF remains the preferred approach for broader deployment because it scales better to longer documents and maintains more stable decision margins.
+1. **Performance with TF-IDF:** On the TF-IDF representation, the Linear SVC model outperformed all others with an F1-score of **99.10%** and an accuracy of **99.13%**. It successfully detected 2,910 out of 2,924 spam messages (99.52% Recall) while generating only 26 false positives (98.68% Precision).
+2. **Performance across Models:** All models perform exceptionally well on the Enron email dataset, with classifiers like SVM, Logistic Regression, and Naive Bayes exceeding 98% accuracy. This indicates the high quality and linearly separable characteristics of the text features extracted using the combined Subject + Message field.
 3. **Final Model Choice:** Based on its balanced performance and high F1-score, the **Support Vector Machine (LinearSVC)** trained on TF-IDF features was selected as the production model for deployment.
 
 ---
@@ -271,7 +262,7 @@ The tables below present a comprehensive comparison of model performance on the 
 ### 11. Conclusion & Future Scope
 
 #### 11.1 Conclusion
-We have successfully developed, analyzed, and deployed an end-to-end NLP framework for phishing email detection. By systematically implementing rigorous data cleansing, tokenization, stopword elimination, and WordNet-based lemmatization, the raw text was converted into highly descriptive features. Linear SVC combined with TF-IDF features proved to be the most robust architecture, yielding **98.45% accuracy** and a balanced **94.33% F1-score**. The integration of Streamlit provides an intuitive, accessible layout for real-time inference.
+We have successfully developed, analyzed, and deployed an end-to-end NLP framework for phishing email detection. By systematically implementing rigorous data cleansing, tokenization, stopword elimination, and WordNet-based lemmatization, the raw text was converted into highly descriptive features. Linear SVC combined with TF-IDF features proved to be the most robust architecture, yielding **99.13% accuracy** and a balanced **99.10% F1-score**. The integration of Streamlit provides an intuitive, accessible layout for real-time inference.
 
 #### 11.2 Future Scope
 To improve model robustness and expand capabilities in future iterations, we propose:
