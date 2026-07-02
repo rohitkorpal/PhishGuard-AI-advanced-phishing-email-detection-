@@ -1,0 +1,20 @@
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Streamlit configurations
+.streamlit/
+
+# IDE / Editor configurations
+.vscode/
+.idea/
+
+# Operating system files
+.DS_Store
+Thumbs.db

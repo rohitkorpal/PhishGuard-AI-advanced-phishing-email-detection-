@@ -203,20 +203,23 @@ with tab2:
     """, unsafe_allow_html=True)
     
     # Model metrics
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
-        st.metric("Accuracy", "99.13%")
+        st.metric("Training Accuracy", "99.99%")
     with col2:
-        st.metric("Precision", "98.68%")
+        st.metric("Testing Accuracy", "99.13%")
     with col3:
-        st.metric("Recall", "99.52%")
+        st.metric("Precision", "98.68%")
     with col4:
+        st.metric("Recall", "99.52%")
+    with col5:
         st.metric("F1-Score", "99.10%")
         
     # Interactive Metrics Explainer
     with st.expander("📚 What do these evaluation metrics actually mean?"):
         st.markdown("""
-        *   **Accuracy (99.13%)**: The total percentage of emails correctly categorized by the model (both spam and legitimate).
+        *   **Training Accuracy (99.99%)**: The classification accuracy on the dataset the model learned from.
+        *   **Testing Accuracy (99.13%)**: The classification accuracy on the unseen test dataset. The tiny difference (~0.86%) indicates a highly generalized, non-overfit model.
         *   **Precision (98.68%)**: Out of all emails the model flagged as *Spam*, how many were actually *Spam*. High precision means **fewer legitimate emails are blocked by mistake** (low False Positives).
         *   **Recall (99.52%)**: Out of all actual *Spam* emails received, how many did the model successfully catch. High recall means **fewer phishing attempts slip into the inbox** (low False Negatives).
         *   **F1-Score (99.10%)**: The harmonic mean of Precision and Recall. It is the gold-standard metric for evaluating balanced text classification.
