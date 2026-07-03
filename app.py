@@ -159,7 +159,7 @@ def load_bert_model():
 # Sidebar Setup
 st.sidebar.markdown("<h2 style='color:#560bad;'>🛡️ PhishGuard AI</h2>", unsafe_allow_html=True)
 st.sidebar.markdown("""
-**PhishGuard AI** is an NLP-based semester project that analyzes incoming emails and classifies them as either **Ham (Legitimate)** or **Spam (Phishing)**.
+**PhishGuard AI** is an NLP-based project that analyzes incoming emails and classifies them as either **Ham (Legitimate)** or **Spam (Phishing)**.
 
 ### 📊 Model Info:
 * **Best Model:** Support Vector Machine (LinearSVC)
