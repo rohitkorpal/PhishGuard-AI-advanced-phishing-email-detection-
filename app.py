@@ -541,6 +541,30 @@ with tab1:
         col_wc1, col_wc2, col_wc3 = st.columns([1, 4, 1])
         with col_wc2:
             st.image(wc_image_path, caption="Frequently Used Words (Spam vs. Ham)", use_container_width=True)
+            
+    st.markdown("---")
+    st.header("📊 Malicious URL Dataset Insights")
+    st.markdown("""
+    To support link-level security checks, the app is integrated with a **651,191 URLs dataset** (`malicious_phish.csv`) that categorizes web addresses into safe and malicious classes.
+    """)
+    
+    # URL Dataset statistics
+    col_url1, col_url2, col_url3, col_url4 = st.columns(4)
+    with col_url1:
+        st.metric("Total Clean Unique URLs", "641,119")
+    with col_url2:
+        st.metric("Safe / Benign Links", "428,103 (66.8%)")
+    with col_url3:
+        st.metric("Malicious Links (Phish/Deface/Malware)", "213,016 (33.2%)")
+    with col_url4:
+        st.metric("Unique Domain Names", "154,471")
+        
+    st.markdown("""
+    *   **Benign URLs (428,103)**: Legitimate standard search engines, corporate sites, and benign references.
+    *   **Defacement URLs (96,457)**: Hacked web pages where the visual layout has been compromised or vandalized.
+    *   **Phishing URLs (94,111)**: Deceptive landing sites built to harvest credentials (e.g. fake logins for banks or tech companies).
+    *   **Malware URLs (32,520)**: Sites hosting malicious payloads, viruses, or ransomware download links.
+    """)
 
 with tab2:
     st.header("📈 Model Performance & Evaluation Metrics")
@@ -626,6 +650,47 @@ with tab2:
         1. **High-Dimensional Feature Space**: The TF-IDF extraction generated **227,132 features (n-grams)**. SVMs are mathematically designed to find the optimal separating hyperplane in high dimensions.
         2. **Linear Separability of Text**: In text classification, datasets are often linearly separable if the feature space is large enough. Models like SVM and Logistic Regression excel at drawing these linear boundaries.
         3. **Resistance to Overfitting**: By maximizing the margin between classes (Ham and Spam), SVM avoids overfitting on specific terms, maintaining a high testing performance (**99.13%**) close to its training score.
+        """)
+
+    st.markdown("---")
+    st.header("🔗 Malicious URL Classifier Performance")
+    st.markdown("""
+    Below are the performance metrics and classification statistics for the **XGBoost URL Classifier** trained on the disjoint domain split of the malicious URL dataset.
+    """)
+    
+    # Callout box for URL model
+    st.markdown("""
+    <div style='background-color: #f3f0ff; padding: 1.25rem; border-radius: 8px; margin-bottom: 1.5rem; border-left: 5px solid #7209b7;'>
+        <h4 style='color: #4c1d95; margin: 0; font-family: sans-serif;'>🏆 Selected Classifier: XGBoost (Extreme Gradient Boosting)</h4>
+        <p style='color: #4b5563; font-size: 0.95rem; margin-top: 0.5rem; line-height: 1.4; font-family: sans-serif;'>
+            XGBoost operates as an optimized distributed gradient boosting library. By combining lexical parser features (URL length, subdomain nested levels, specific characters ratios, raw IP detection, and keywords alerts) with a character 3-to-5-gram TF-IDF vectorizer (capped at 3,000 features), it achieves highly accurate, sub-millisecond class predictions.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col_u1, col_u2, col_u3 = st.columns(3)
+    with col_u1:
+        st.metric("Validation Accuracy", "95.41%")
+    with col_u2:
+        st.metric("Macro F1-Score", "93.00%")
+    with col_u3:
+        st.metric("Unique Train Domains", "123,576")
+        
+    st.markdown("### 📊 Classification Metrics Report (By Class)")
+    st.markdown("""
+    | Class Label | Precision | Recall | F1-Score | Validation Support |
+    | :--- | :---: | :---: | :---: | :---: |
+    | **Benign (Safe)** | 96.00% | 99.00% | 97.00% | 32,955 |
+    | **Phishing** | 90.00% | 79.00% | 84.00% | 7,219 |
+    | **Defacement** | 98.00% | 97.00% | 97.00% | 8,483 |
+    | **Malware** | 98.00% | 86.00% | 91.00% | 1,341 |
+    | **Overall Accuracy** | | | **95.41%** | 49,998 |
+    """)
+    
+    with st.expander("❓ Why did we split train/test based on Unique Domains?"):
+        st.markdown("""
+        1. **Domain Leakage Avoidance**: Randomly splitting URLs causes links from the same domain to be split across training and validation subsets. Since the model easily memorizes domains, validation scores are artificially inflated (~99%).
+        2. **Real-World Generalization**: Splitting the 154,471 unique domains strictly 80/20 guarantees that domains present in training are never seen in testing. This forces the tree booster to learn generalized structural and lexical features of malicious links, rather than memorizing domain strings.
         """)
 
 with tab3:
