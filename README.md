@@ -19,8 +19,9 @@ Using the provided dataset `dataset/enron_spam_data.csv` (30,494 unique emails),
     *   Runs **Support Vector Machine (LinearSVC)** and **BERT (Contextual Embeddings)** simultaneously on the input email.
     *   Displays a **Consensus Safety Verdict** banner at the top (🚨 Critical Phishing, ⚠️ Suspicious Activity, or ✅ Safe Email).
     *   Renders side-by-side metrics panels comparing the output, confidence rating, and processing parameters of both models.
+    *   **📧 Advanced Sender Header Audit**: Evaluates sender display names against actual email domain paths to flag Display Name Spoofing, Free Webmail Corporate Abuse, Homoglyph-Aware Levenshtein Typosquatting (e.g., `g00gle.com` or `rnicrosoft.com`), and Reply-To domain redirect attacks.
     *   **🔗 Hybrid Hyperlink Scanner**: Extracts email hyperlinks and evaluates them via (a) lexical heuristics (HTTP checks, obfuscated shorteners, raw IP hostnames), and (b) a GPU-trained **XGBoost URL Classifier** (trained on 651k URLs).
-    *   **📄 Download Forensic Report**: Generates and downloads a formal PDF security audit report containing all verdict and link scan details.
+    *   **📄 Download Forensic Report**: Generates and downloads a formal PDF security audit report containing text verdicts, sender metadata verification logs, and link scan details.
 
 ---
 

@@ -334,7 +334,7 @@ def clean_for_pdf(text):
                 cleaned += "?"
     return cleaned
 
-def generate_pdf_report(email_text, svm_res, bert_res, url_res):
+def generate_pdf_report(email_text, svm_res, bert_res, url_res, header_res=None):
     if not HAS_FPDF:
         return None
         
@@ -386,6 +386,20 @@ def generate_pdf_report(email_text, svm_res, bert_res, url_res):
     pdf.set_text_color(0, 0, 0)
     pdf.ln(5)
     
+    # Section 1.5: Sender Metadata Header Audit
+    if header_res is not None:
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.cell(0, 10, "1.5. Sender Metadata Verification Logs", ln=True)
+        pdf.set_font("Helvetica", "", 10)
+        
+        pdf.cell(0, 6, f"- Audit Status: {header_res['status'].upper()}", ln=True)
+        if header_res["issues"]:
+            for issue in header_res["issues"]:
+                pdf.cell(0, 6, f"  * {clean_for_pdf(issue)}", ln=True)
+        else:
+            pdf.cell(0, 6, "  * No structural sender domain discrepancies identified.", ln=True)
+        pdf.ln(5)
+        
     # Section 2: Engine Performance
     pdf.set_font("Helvetica", "B", 14)
     pdf.cell(0, 10, "2. Classifier Confidence Metrics", ln=True)
@@ -435,6 +449,152 @@ def generate_pdf_report(email_text, svm_res, bert_res, url_res):
     
     # Return raw PDF bytes
     return bytes(pdf.output())
+
+def levenshtein_distance(s1, s2):
+    if len(s1) < len(s2):
+        return levenshtein_distance(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+        
+    previous_row = range(len(s2) + 1)
+    for i, c1 in enumerate(s1):
+        current_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            insertions = previous_row[j + 1] + 1
+            deletions = current_row[j] + 1
+            substitutions = previous_row[j] + (c1 != c2)
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+        
+    return previous_row[-1]
+
+def clean_homoglyphs(text):
+    homoglyphs = {
+        '0': 'o', '1': 'l', '3': 'e', '4': 'a', '5': 's',
+        '8': 'b', '9': 'g', 'rn': 'm', 'vv': 'w', 'cl': 'd'
+    }
+    text_clean = text.lower()
+    for hk, hv in homoglyphs.items():
+        text_clean = text_clean.replace(hk, hv)
+    return text_clean
+
+def audit_email_headers(display_name, email_address, reply_to_address=None):
+    if not email_address.strip():
+        return None
+        
+    display_name = display_name.strip()
+    email_address = email_address.strip()
+    
+    if "@" not in email_address:
+        return {
+            "status": "Danger",
+            "issues": ["🚨 Invalid Email Address: Sender address format is invalid (missing '@')."]
+        }
+        
+    parts = email_address.split("@")
+    if len(parts) != 2:
+        return {
+            "status": "Danger",
+            "issues": ["🚨 Invalid Email Address: Sender address format is invalid."]
+        }
+        
+    username, domain = parts[0], parts[1].lower()
+    
+    # Official brand domains whitelist
+    official_brands = {
+        "paypal": "paypal.com",
+        "google": "google.com",
+        "gmail": "google.com",
+        "netflix": "netflix.com",
+        "microsoft": "microsoft.com",
+        "outlook": "microsoft.com",
+        "amazon": "amazon.com",
+        "apple": "apple.com",
+        "facebook": "facebook.com",
+        "meta": "meta.com",
+        "whatsapp": "whatsapp.com",
+        "instagram": "instagram.com",
+        "yahoo": "yahoo.com",
+        "linkedin": "linkedin.com",
+        "twitter": "twitter.com"
+    }
+    
+    # Free webmail providers
+    free_webmails = {"gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "aol.com", "icloud.com", "mail.com"}
+    
+    # High-risk administrative keywords
+    executive_keywords = ["ceo", "cfo", "president", "hr", "human resources", "billing", "finance", "security", "support", "admin", "system", "verify", "verification", "login", "alert", "service"]
+    
+    audit_results = {
+        "status": "Safe", # Safe, Suspicious, Danger
+        "issues": []
+    }
+    
+    # Extract core domain using TLD-aware logic
+    core_domain = extract_core_domain(email_address)
+    # Extract Second-Level Domain name (excluding extension like .com)
+    domain_sld = core_domain.split('.')[0] if '.' in core_domain else core_domain
+    
+    # Check 1: Brand Spoofing via Fuzzy Matching & Homoglyphs (Typosquatting)
+    sld_normalized = clean_homoglyphs(domain_sld)
+    for brand, off_domain in official_brands.items():
+        brand_sld = off_domain.split('.')[0]
+        brand_normalized = clean_homoglyphs(brand_sld)
+        
+        # Calculate Levenshtein similarity on normalized SLD segments (split by hyphen)
+        parts = sld_normalized.split('-')
+        max_sim = 0.0
+        for part in parts:
+            dist = levenshtein_distance(brand_normalized, part)
+            sim = 1.0 - (dist / max(len(brand_normalized), len(part))) if max(len(brand_normalized), len(part)) > 0 else 0
+            if sim > max_sim:
+                max_sim = sim
+                
+        if max_sim >= 0.85:
+            if core_domain != off_domain and not core_domain.endswith("." + off_domain):
+                audit_results["issues"].append(f"🚨 Typosquatting / Brand Impersonation: Domain '{core_domain}' closely mimics official brand '{brand.capitalize()}' (Similarity: {max_sim*100:.1f}% after visual homoglyph correction).")
+                audit_results["status"] = "Danger"
+                break
+
+    # Check 2: Display Name Spoofing
+    display_lower = display_name.lower()
+    for brand, off_domain in official_brands.items():
+        if brand in display_lower:
+            if core_domain != off_domain and not core_domain.endswith("." + off_domain):
+                if not any(brand in issue for issue in audit_results["issues"]):
+                    audit_results["issues"].append(f"🚨 Display Name Spoofing: Display name claims to represent '{brand.capitalize()}' but actual sending domain is '{core_domain}' (expected: {off_domain}).")
+                    audit_results["status"] = "Danger"
+                    break
+                    
+    # Check 3: Free Webmail Abuse for Corporate Claims
+    is_free_mail = core_domain in free_webmails
+    if is_free_mail:
+        has_exec_keyword = any(keyword in display_lower for keyword in executive_keywords)
+        has_brand_keyword = any(brand in display_lower for brand in official_brands)
+        if has_exec_keyword or has_brand_keyword:
+            audit_results["issues"].append(f"🚨 Free Webmail Corporate Abuse: Official corporate or brand claims originating from a public email provider ({domain}). Real services use custom enterprise domains.")
+            audit_results["status"] = "Danger"
+            
+    # Check 4: General Executive Username flags
+    username_lower = username.lower()
+    if not is_free_mail and audit_results["status"] == "Safe":
+        for keyword in ["ceo", "cfo", "president"]:
+            if keyword == username_lower or username_lower.startswith(keyword + "-") or username_lower.startswith(keyword + "_"):
+                audit_results["issues"].append(f"⚠️ Executive Identity Flag: Sender username starts with high-priority role '{keyword.upper()}'. Validate via alternative contact channel.")
+                audit_results["status"] = "Suspicious"
+                
+    # Check 5: Reply-To Inconsistency Mismatch Check
+    if reply_to_address and reply_to_address.strip():
+        reply_to_clean = reply_to_address.strip()
+        if "@" in reply_to_clean:
+            reply_parts = reply_to_clean.split("@")
+            if len(reply_parts) == 2:
+                reply_core_domain = extract_core_domain(reply_to_clean)
+                if reply_core_domain != core_domain:
+                    audit_results["issues"].append(f"🚨 Reply-To Header Mismatch: Reply-To address '{reply_to_clean}' points to a different core domain than the From address '{email_address}'. Replies will be routed to an external domain.")
+                    audit_results["status"] = "Danger"
+                
+    return audit_results
 
 # Load Models
 @st.cache_resource
@@ -703,10 +863,27 @@ with tab3:
         # Text input
         email_text = st.text_area("Email Content", height=200, placeholder="Paste your email text here...")
 
+        # Collapsible Expander for Sender Header inputs
+        with st.expander("📧 Advanced Email Header Audit (Optional)"):
+            st.markdown("Use these fields to inspect sender metadata (e.g., Display Name vs. Email Domain mismatch checks).")
+            col_h1, col_h2, col_h3 = st.columns(3)
+            with col_h1:
+                sender_name = st.text_input("Sender Display Name", placeholder="e.g., PayPal Security Alert")
+            with col_h2:
+                sender_email = st.text_input("Sender Email Address", placeholder="e.g., alert@paypal.com")
+            with col_h3:
+                reply_to_email = st.text_input("Reply-To Email Address", placeholder="e.g., help@secure-billing.xyz")
+
         if st.button("Predict / Analyze"):
             if email_text.strip() == "":
                 st.warning("Please enter some text to classify.")
             else:
+                # -----------------------------------------------------
+                # PART 0: Run Sender Metadata Header Check
+                # -----------------------------------------------------
+                header_audit = None
+                if sender_email.strip():
+                    header_audit = audit_email_headers(sender_name, sender_email, reply_to_email)
                 # -----------------------------------------------------
                 # PART 1: Run SVM (Traditional ML) Pipeline
                 # -----------------------------------------------------
@@ -798,6 +975,22 @@ with tab3:
                         st.error("🚨 **VERDICT: PHISHING ALERT DETECTED** (The SVM Classifier flagged this email as spam/phishing)")
                     else:
                         st.success("✅ **VERDICT: LEGITIMATE EMAIL** (The SVM Classifier verified this email as safe)")
+
+                # -----------------------------------------------------
+                # PART 3.5: Sender Metadata Header Check Display
+                # -----------------------------------------------------
+                if header_audit is not None:
+                    st.markdown("---")
+                    st.markdown("### 📧 Sender Metadata Verification Check")
+                    if header_audit["status"] == "Danger":
+                        st.error("🚨 **METADATA SPOOFING WARNING** (High-risk vulnerability flags identified on sender address)")
+                    elif header_audit["status"] == "Suspicious":
+                        st.warning("⚠️ **SENDER INTEGRITY ADVISORY** (Minor domain identity inconsistencies detected)")
+                    else:
+                        st.success("✅ **SENDER DOMAIN VERIFIED** (Official match for display claims)")
+                        
+                    for issue in header_audit["issues"]:
+                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&bull;&nbsp;&nbsp;{issue}")
 
                 # -----------------------------------------------------
                 # PART 4: Side-by-Side Analysis Panels
@@ -898,7 +1091,7 @@ with tab3:
                         
                     # Generate PDF data
                     try:
-                        pdf_data = generate_pdf_report(email_text, svm_results, bert_results, url_audit_results)
+                        pdf_data = generate_pdf_report(email_text, svm_results, bert_results, url_audit_results, header_audit)
                         if pdf_data:
                             st.download_button(
                                 label="Download Forensic PDF Report",
