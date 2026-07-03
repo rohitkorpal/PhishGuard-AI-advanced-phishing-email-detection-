@@ -247,14 +247,13 @@ The tables below present a comprehensive comparison of model performance on the 
 ## VIII. CONCLUSION & FUTURE DIRECTIONS
 
 ### A. Conclusion
-We have successfully developed, analyzed, and deployed an end-to-end NLP framework for phishing email detection. By systematically implementing rigorous data cleansing, tokenization, stopword elimination, and WordNet-based lemmatization, the raw text was converted into highly descriptive features. Linear SVC combined with TF-IDF features proved to be the most robust architecture, yielding **99.13% accuracy** and a balanced **99.10% F1-score**. The integration of Streamlit provides an intuitive, accessible layout for real-time inference.
+We have successfully developed, analyzed, and deployed an end-to-end NLP framework for phishing email detection. By systematically implementing rigorous data cleansing, tokenization, stopword elimination, and WordNet-based lemmatization, the raw text was converted into highly descriptive features. Linear SVC combined with TF-IDF features proved to be the most robust architecture, yielding **99.13% accuracy** and a balanced **99.10% F1-score**. Furthermore, a production-grade **Email Header and Metadata Spoofing Auditor** was designed and integrated, executing homoglyph-aware Levenshtein typosquatting checks and Reply-To domain redirect checks to mitigate impersonation and Business Email Compromise (BEC) risks. The integration of Streamlit provides an intuitive, accessible layout for real-time inference.
 
 ### B. Future Scope
 To improve model robustness and expand capabilities in future iterations, we propose:
-1. **Deep Learning Architectures:** Evaluate Recurrent Neural Networks (LSTMs) or Transformer-based models (like BERT, RoBERTa) to capture contextual semantics and long-range dependencies in email text.
-2. **Metadata Integration:** Incorporate non-textual metadata (sender domain reputation, email header routing path, presence of attachments, IP geolocations) into the feature space to improve detection accuracy.
-3. **Active Learning Feedback Loop:** Implement a mechanism within the UI allowing users to report misclassifications, dynamically updating and retraining the models over time.
-4. **Defense Against Adversarial Attacks:** Train models using adversarial samples (e.g., text with intentional typos or hidden characters) to build resilience against evasion techniques.
+1. **Contextual Deep Learning Architectures:** Evaluate Recurrent Neural Networks (LSTMs) or Transformer-based models (like RoBERTa) to capture contextual semantics and long-range dependencies in email text.
+2. **Active Learning Feedback Loop:** Implement a mechanism within the UI allowing users to report misclassifications, dynamically updating and retraining the models over time.
+3. **Defense Against Adversarial Attacks:** Train models using adversarial samples (e.g., text with intentional typos or hidden characters) to build resilience against evasion techniques.
 
 ---
 
