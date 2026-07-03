@@ -7,7 +7,7 @@
 ---
 
 ### Abstract
-Phishing remains one of the most persistent and dangerous cybersecurity threats, leading to significant financial losses and data breaches worldwide. Attackers exploit human vulnerabilities by sending deceptive emails that mimic legitimate communications, coercing victims into revealing sensitive credentials, installing malware, or authorizing unauthorized transactions. Traditional signature-based detection systems fall short against modern, dynamic phishing campaigns that utilize sophisticated social engineering tactics. This project presents an end-to-end Machine Learning (ML) and Natural Language Processing (NLP) framework, named **PhishGuard AI**, designed to identify and classify phishing emails automatically. Utilizing a public dataset of 33,716 emails (`enron_spam_data.csv`), we perform rigorous data cleaning and textual preprocessing—including HTML tag stripping, URL and number removal, tokenization, stopword removal, and lemmatization. For feature extraction, we evaluate and compare vectorization techniques: Bag of Words (CountVectorizer) and Term Frequency-Inverse Document Frequency (TF-IDF). Five distinct supervised learning algorithms are trained and compared: Logistic Regression, Multinomial Naive Bayes, Random Forest, Decision Tree, and Support Vector Machine (LinearSVC). Our experimental findings show that the Support Vector Machine (LinearSVC) model utilizing TF-IDF features achieves the best classification performance, boasting a validation accuracy of **99.13%** and an F1-score of **99.10%**. To transition this research into a practical utility, a lightweight web application is developed using Streamlit, permitting users to perform real-time security assessment of email content.
+Phishing remains one of the most persistent and dangerous cybersecurity threats, leading to significant financial losses and data breaches worldwide. Attackers exploit human vulnerabilities by sending deceptive emails that mimic legitimate communications, coercing victims into revealing sensitive credentials, installing malware, or authorizing unauthorized transactions. Traditional signature-based detection systems fall short against modern, dynamic phishing campaigns that utilize sophisticated social engineering tactics. This project presents an end-to-end Machine Learning (ML) and Natural Language Processing (NLP) framework, named **PhishGuard AI**, designed to identify and classify phishing emails automatically. Utilizing a public dataset of 33,716 emails (`dataset/enron_spam_data.csv`), we perform rigorous data cleaning and textual preprocessing—including HTML tag stripping, URL and number removal, tokenization, stopword removal, and lemmatization. For feature extraction, we evaluate and compare vectorization techniques: Bag of Words (CountVectorizer) and Term Frequency-Inverse Document Frequency (TF-IDF). Five distinct supervised learning algorithms are trained and compared: Logistic Regression, Multinomial Naive Bayes, Random Forest, Decision Tree, and Support Vector Machine (LinearSVC). Our experimental findings show that the Support Vector Machine (LinearSVC) model utilizing TF-IDF features achieves the best classification performance, boasting a validation accuracy of **99.13%** and an F1-score of **99.10%**. To transition this research into a practical utility, a lightweight web application is developed using Streamlit, permitting users to perform real-time security assessment of email content.
 
 ***Index Terms*—Phishing Detection, Natural Language Processing, Machine Learning, Support Vector Machines, TF-IDF, Cybersecurity.**
 
@@ -58,7 +58,7 @@ The primary objectives of this final year project are:
 ## III. DATASET CHARACTERISTICS & PREPROCESSING PIPELINE
 
 ### A. Dataset Selection
-The project uses the `enron_spam_data.csv` file, which is based on the Enron Email Dataset, representing a standard benchmark for email text classification tasks [2].
+The project uses the `dataset/enron_spam_data.csv` file, which is based on the Enron Email Dataset, representing a standard benchmark for email text classification tasks [2].
 
 #### 1) Raw Dataset Characteristics
 An initial programmatic inspection of the raw dataset yields the following characteristics:
@@ -94,6 +94,9 @@ Text preprocessing is a critical step in NLP [3]. Raw text contains a large amou
 6. **Tokenization:** Split sentences into individual words (tokens) using NLTK's `word_tokenize`.
 7. **Stopword Elimination:** Eliminate common words that appear frequently across all documents but carry little semantic value (e.g., "the", "is", "and"). We use NLTK's standard English stopword list.
 8. **Lemmatization:** Reduce words to their base or dictionary form (lemma) using NLTK's `WordNetLemmatizer`. For example, "running", "ran", and "runs" are mapped to "run".
+
+### C. Malicious URL Classification Dataset
+To extend the capability of PhishGuard AI, we integrated a secondary dataset specifically for link-level analysis: `dataset/malicious_phish.csv`. This dataset consists of **651,191 URLs** (428,103 benign, 96,457 defacement, 94,111 phishing, and 32,520 malware URLs). After removing duplicate records, the corpus contains **641,119 unique URLs** mapped to **154,471 unique domains**. This large dataset is used to train a robust URL classifier model that operates alongside text analysis.
 
 ---
 
@@ -159,7 +162,7 @@ graph TD
 
 The system operates in two core phases: **Training Phase** and **Prediction Phase**.
 1. **Training Phase:** Raw text is preprocessed, converted into numerical vectors, split into training/testing sets, modeled using ML classifiers, and evaluated. The best model and vectorizer are then serialized.
-2. **Prediction Phase:** An end-user inputs text into the Streamlit application. The system processes the text simultaneously through two independent detection engines: (a) the traditional TF-IDF + LinearSVC pipeline, and (b) a deep learning transformer (BERT/DistilBERT). The predictions from both models are compared, and a consensus safety verdict (High-Confidence Phishing, Suspicious, or Safe) is determined and displayed alongside side-by-side confidence scores.
+2. **Prediction Phase:** An end-user inputs text into the Streamlit application. The system processes the text simultaneously through two independent detection engines: (a) the traditional TF-IDF + LinearSVC pipeline, and (b) a deep learning transformer (BERT/DistilBERT). The predictions from both models are compared, and a consensus safety verdict (High-Confidence Phishing, Suspicious, or Safe) is determined and displayed alongside side-by-side confidence scores. Concurrently, any hyperlinks detected in the email body are evaluated by a hybrid URL analysis module consisting of: (a) lexical heuristics (e.g., protocol checks, obfuscation service detection, raw IP hosting, subdomain depth), and (b) an XGBoost classification model trained on a 651k URL database to predict URL threat categories (phishing, defacement, malware, or benign).
 
 ---
 
@@ -193,6 +196,9 @@ Linear SVC is particularly suited for text classification because text features 
 ### F. Bidirectional Encoder Representations from Transformers (BERT)
 BERT is a deep learning transformer model designed to pre-train bidirectional representations from unlabeled text by jointly conditioning on both left and right context in all layers. In this project, a fine-tuned lightweight DistilBERT classifier is integrated during the live prediction phase. This captures deep semantic context, contextual shifts, and suspicious intent that traditional word-matching models cannot capture.
 
+### G. XGBoost URL Classifier
+For link-level analysis, we utilize **XGBoost (Extreme Gradient Boosting)**, a scalable tree boosting system. The feature space consists of a hybrid matrix of 13 lexical features (e.g., URL length, subdomain depth, digit counts, raw IP hosting, brand terms checks) and a character-level TF-IDF vectorizer (3-to-5 character n-grams, capped at 3,000 features). To prevent **domain leakage**, training/validation splits are executed on a disjoint domain basis (80% train domains, 20% test domains). This guarantees that domains present in training are never seen in validation, forcing the tree booster to learn generalized structural patterns of malicious links.
+
 ---
 
 ## VII. EVALUATION METRICS & EXPERIMENTAL RESULTS
@@ -220,6 +226,15 @@ The tables below present a comprehensive comparison of model performance on the 
 | **Multinomial Naive Bayes** | 98.85% | 98.90% | 98.70% | 98.80% |
 | **Random Forest** | 98.57% | 98.13% | 98.91% | 98.52% |
 | **Decision Tree** | 95.80% | 96.19% | 95.01% | 95.60% |
+
+##### Table 2: Malicious URL Classifier Performance (XGBoost)
+| Class Label | Precision | Recall | F1-Score | Validation Support |
+| :--- | :---: | :---: | :---: | :---: |
+| **Benign** | 96.00% | 99.00% | 97.00% | 32,955 |
+| **Phishing** | 90.00% | 79.00% | 84.00% | 7,219 |
+| **Defacement** | 98.00% | 97.00% | 97.00% | 8,483 |
+| **Malware** | 98.00% | 86.00% | 91.00% | 1,341 |
+| **Overall Accuracy** | | | **95.41%** | 49,998 |
 
 ### B. Discussion and Best Model Selection
 1. **Performance with TF-IDF:** On the TF-IDF representation, the Linear SVC model outperformed all others with an F1-score of **99.10%** and an accuracy of **99.13%**. It successfully detected 2,910 out of 2,924 spam messages (99.52% Recall) while generating only 26 false positives (98.68% Precision).

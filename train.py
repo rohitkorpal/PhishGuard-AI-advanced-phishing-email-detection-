@@ -60,7 +60,7 @@ def preprocess_text(text):
 
 def main():
     print("Loading Enron dataset...")
-    df = pd.read_csv('enron_spam_data.csv')
+    df = pd.read_csv(os.path.join('dataset', 'enron_spam_data.csv'))
     
     # 1. Combine Subject and Message for full context
     df['text'] = df['Subject'].fillna('') + ' ' + df['Message'].fillna('')

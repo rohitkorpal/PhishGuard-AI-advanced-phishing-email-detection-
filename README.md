@@ -7,7 +7,7 @@ This repository contains a complete, end-to-end B.Tech AIML semester project tha
 ## 🛡️ Project Overview
 Phishing emails are one of the most common vectors for cyberattacks. **PhishGuard AI** demonstrates how text classification algorithms can analyze text structure, semantic patterns, and vocabulary to accurately distinguish between **Spam (Phishing)** and **Ham (Legitimate)** emails.
 
-Using the provided dataset `enron_spam_data.csv` (30,494 unique emails), the project compares traditional Machine Learning and Deep Learning architectures. The baseline classifier **Support Vector Machine (LinearSVC)** achieves **99.13% accuracy** and **99.10% F1-score** on unseen test data.
+Using the provided dataset `dataset/enron_spam_data.csv` (30,494 unique emails), the project compares traditional Machine Learning and Deep Learning architectures. The baseline classifier **Support Vector Machine (LinearSVC)** achieves **99.13% accuracy** and **99.10% F1-score** on unseen test data.
 
 ---
 
@@ -19,23 +19,30 @@ Using the provided dataset `enron_spam_data.csv` (30,494 unique emails), the pro
     *   Runs **Support Vector Machine (LinearSVC)** and **BERT (Contextual Embeddings)** simultaneously on the input email.
     *   Displays a **Consensus Safety Verdict** banner at the top (🚨 Critical Phishing, ⚠️ Suspicious Activity, or ✅ Safe Email).
     *   Renders side-by-side metrics panels comparing the output, confidence rating, and processing parameters of both models.
+    *   **🔗 Hybrid Hyperlink Scanner**: Extracts email hyperlinks and evaluates them via (a) lexical heuristics (HTTP checks, obfuscated shorteners, raw IP hostnames), and (b) a GPU-trained **XGBoost URL Classifier** (trained on 651k URLs).
+    *   **📄 Download Forensic Report**: Generates and downloads a formal PDF security audit report containing all verdict and link scan details.
 
 ---
 
 ## 📁 Repository Structure
 ```text
-├── enron_spam_data.csv        # Primary dataset (Enron Email Dataset)
+├── dataset/
+│   ├── enron_spam_data.csv    # Primary dataset (Enron Email Dataset)
+│   └── malicious_phish.csv    # Secondary dataset (651k Malicious URLs Dataset)
 ├── requirements.txt           # Project dependencies
-├── app.py                     # Streamlit web application (includes SVM and BERT pipelines)
+├── app.py                     # Streamlit web application (includes SVM, BERT, URL pipelines)
 ├── predict_bert_demo.py       # Offline demo script to test local BERT pipeline
 ├── README.md                  # Project documentation
 ├── Project_Report.md          # Project report (IEEE Conference Paper style)
 ├── train.py                   # Script to train and compare the 5 ML models
+├── train_url_model.py         # Script to train the XGBoost URL classifier
 ├── generate_plots.py          # Script to generate Enron evaluation graphs
 ├── phishing_email_detection.ipynb  # Interactive Jupyter Notebook
 ├── models/
 │   ├── best_model.pkl         # Serialized best-performing ML model (SVM)
-│   └── tfidf_vectorizer.pkl   # Serialized TF-IDF Vectorizer
+│   ├── tfidf_vectorizer.pkl   # Serialized TF-IDF Vectorizer
+│   ├── url_classifier.pkl     # Serialized XGBoost URL classifier
+│   └── url_vectorizer.pkl     # Serialized URL char-level TF-IDF Vectorizer
 └── visualizations/            # Generated evaluation graphs
     ├── enron_class_distribution.png
     ├── enron_confusion_matrix.png
@@ -110,3 +117,17 @@ The following table summarizes the performance of the 5 classifiers trained on t
 | **Decision Tree** | 95.80% | 96.19% | 95.01% | 95.60% |
 
 *The best model was chosen based on its **F1-score**, which balances classification accuracy on both minority (Spam) and majority (Ham) classes.*
+
+---
+
+## 🔗 Malicious URL Classifier Performance (XGBoost)
+
+For link-level checking, the app loads an **XGBoost Classifier** trained on **641,119 unique URLs** with domain-disjoint splitting (80% train domains / 20% test domains) to prevent leakage. It achieves a validation accuracy of **95.41%**:
+
+| Class Label | Precision | Recall | F1-Score | Validation Support |
+| :--- | :---: | :---: | :---: | :---: |
+| **Benign** | 96% | 99% | 97% | 32,955 |
+| **Phishing** | 90% | 79% | 84% | 7,219 |
+| **Defacement** | 98% | 97% | 97% | 8,483 |
+| **Malware** | 98% | 86% | 91% | 1,341 |
+| **Overall Accuracy** | | | **95.41%** | 49,998 |

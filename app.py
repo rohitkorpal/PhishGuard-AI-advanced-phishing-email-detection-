@@ -149,6 +149,37 @@ def preprocess_text(text):
 from urllib.parse import urlparse
 import datetime
 
+def get_url_lexical_features(url):
+    url_clean = re.sub(r'^https?://', '', url, flags=re.IGNORECASE)
+    url_clean = re.sub(r'^www\.', '', url_clean, flags=re.IGNORECASE)
+    parts = re.split(r'[:/]', url_clean)
+    hostname = parts[0].lower()
+    
+    url_len = len(url)
+    host_len = len(hostname)
+    
+    dot_count = url.count('.')
+    slash_count = url.count('/')
+    hyphen_count = url.count('-')
+    underscore_count = url.count('_')
+    question_count = url.count('?')
+    equal_count = url.count('=')
+    amp_count = url.count('&')
+    digit_count = sum(c.isdigit() for c in url)
+    
+    is_ip = 1 if re.match(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$', hostname) else 0
+    
+    suspicious_words = ['login', 'secure', 'verify', 'account', 'update', 'signin', 'banking', 'click', 'confirm', 'free', 'gift', 'award', 'prize']
+    has_susp_word = 1 if any(word in url.lower() for word in suspicious_words) else 0
+    
+    subdomain_count = max(0, hostname.count('.') - 1)
+    
+    return [
+        url_len, host_len, dot_count, slash_count, hyphen_count,
+        underscore_count, question_count, equal_count, amp_count,
+        digit_count, is_ip, has_susp_word, subdomain_count
+    ]
+
 def scan_urls_in_text(text):
     # Find all URLs in the email text
     url_pattern = r'https?://\S+|www\.\S+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}(?:/\S*)?'
@@ -240,6 +271,32 @@ def scan_urls_in_text(text):
             analysis["issues"].append("⚠️ Domain Structure: Excessive number of subdomains (common in credential harvesting spoofing).")
             if analysis["status"] != "Danger":
                 analysis["status"] = "Suspicious"
+                
+        # 6. ML URL Classification Prediction
+        if url_model is not None and url_vectorizer is not None:
+            try:
+                # Extract lexical features
+                lex_feats = np.array([get_url_lexical_features(url_clean)])
+                # Vectorize character TF-IDF
+                tfidf_feats = url_vectorizer.transform([url_clean])
+                # Combine using scipy.sparse.hstack
+                import scipy.sparse as sp
+                combined_feats = sp.hstack([lex_feats, tfidf_feats], format='csr')
+                
+                # Predict class probabilities
+                probs = url_model.predict_proba(combined_feats)[0]
+                pred_class_idx = np.argmax(probs)
+                pred_prob = probs[pred_class_idx]
+                
+                class_labels = ['benign', 'phishing', 'defacement', 'malware']
+                pred_label = class_labels[pred_class_idx]
+                
+                # Update status and log details if malicious prediction confidence is high
+                if pred_label != 'benign' and pred_prob > 0.6:
+                    analysis["issues"].append(f"🤖 Machine Learning Alert: URL classified as '{pred_label.upper()}' with {pred_prob*100:.1f}% confidence.")
+                    analysis["status"] = "Danger"
+            except Exception:
+                pass
                 
         audit_results.append(analysis)
         
@@ -394,6 +451,24 @@ def load_models():
     return None, None
 
 model, vectorizer = load_models()
+
+@st.cache_resource
+def load_url_models():
+    clf_path = os.path.join("models", "url_classifier.pkl")
+    vect_path = os.path.join("models", "url_vectorizer.pkl")
+    
+    if os.path.exists(clf_path) and os.path.exists(vect_path):
+        try:
+            with open(clf_path, "rb") as f:
+                clf = pickle.load(f)
+            with open(vect_path, "rb") as f:
+                vect = pickle.load(f)
+            return clf, vect
+        except Exception:
+            return None, None
+    return None, None
+
+url_model, url_vectorizer = load_url_models()
 
 @st.cache_resource
 def load_bert_model():

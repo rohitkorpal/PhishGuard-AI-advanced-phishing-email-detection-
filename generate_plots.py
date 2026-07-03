@@ -41,7 +41,7 @@ def preprocess_text(text):
 
 def main():
     print("Loading dataset...")
-    df = pd.read_csv('enron_spam_data.csv')
+    df = pd.read_csv(os.path.join('dataset', 'enron_spam_data.csv'))
     df['text'] = df['Subject'].fillna('') + ' ' + df['Message'].fillna('')
     df = df[['text', 'Spam/Ham']].dropna()
     df = df.drop_duplicates().reset_index(drop=True)
