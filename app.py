@@ -31,6 +31,21 @@ except ImportError:
         print(f"Auto-installation of deep learning libraries failed: {e}")
         HAS_BERT = False
 
+# Try to import fpdf2; auto-install if missing
+try:
+    from fpdf import FPDF
+    HAS_FPDF = True
+except ImportError:
+    print("PDF library (fpdf2) not found. Installing automatically...")
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "fpdf2"])
+        from fpdf import FPDF
+        HAS_FPDF = True
+        print("fpdf2 library installed successfully!")
+    except Exception as e:
+        print(f"Auto-installation of fpdf2 failed: {e}")
+        HAS_FPDF = False
+
 # Setup NLTK paths
 nltk_data_dir = os.path.expanduser("~/nltk_data")
 if nltk_data_dir not in nltk.data.path:
@@ -130,6 +145,239 @@ def preprocess_text(text):
     # Remove stopwords and Lemmatize
     cleaned_tokens = [lemmatizer.lemmatize(word) for word in tokens if word not in stop_words and len(word) > 1]
     return " ".join(cleaned_tokens)
+
+from urllib.parse import urlparse
+import datetime
+
+def scan_urls_in_text(text):
+    # Find all URLs in the email text
+    url_pattern = r'https?://\S+|www\.\S+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}(?:/\S*)?'
+    # Clean matches from common text characters like brackets
+    raw_urls = re.findall(url_pattern, text)
+    
+    if not raw_urls:
+        return []
+        
+    audit_results = []
+    
+    # Official brand domains whitelist (brands to monitor for spoofing attempts)
+    official_brands = {
+        "paypal": ["paypal.com", "paypal.in", "paypal-status.com"],
+        "google": ["google.com", "google.co.in", "gmail.com", "youtube.com"],
+        "netflix": ["netflix.com", "netflix.net"],
+        "microsoft": ["microsoft.com", "live.com", "outlook.com", "office.com", "sharepoint.com"],
+        "amazon": ["amazon.com", "amazon.in", "aws.amazon.com"],
+        "apple": ["apple.com", "icloud.com"],
+        "facebook": ["facebook.com", "fb.com"],
+        "meta": ["meta.com", "instagram.com", "whatsapp.com"],
+        "yahoo": ["yahoo.com", "yahoo.co.in"]
+    }
+    
+    # Common URL shorteners to check
+    shorteners = ["bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd", "buff.ly"]
+    
+    seen_urls = set()
+    for url in raw_urls:
+        # Ignore placeholders like [FAKE-LINK-HERE] or simple brackets
+        url_clean = url.strip("[]()\"' ,.;:-")
+        if not url_clean or url_clean in seen_urls:
+            continue
+            
+        # Ignore text indicators that are not actual links
+        if "." not in url_clean or len(url_clean) < 4:
+            continue
+            
+        seen_urls.add(url_clean)
+        
+        analysis = {
+            "url": url_clean,
+            "status": "Safe",  # Safe, Suspicious, Danger
+            "issues": []
+        }
+        
+        # Build standard URL for parsing
+        parse_url = url_clean
+        if not parse_url.startswith(("http://", "https://")):
+            parse_url = "http://" + parse_url
+            
+        try:
+            parsed = urlparse(parse_url)
+            hostname = parsed.hostname.lower() if parsed.hostname else ""
+        except Exception:
+            hostname = ""
+            
+        if not hostname:
+            continue
+            
+        # 1. Insecure Protocol Check
+        if url_clean.startswith("http://"):
+            analysis["issues"].append("❌ Insecure Protocol: Uses 'http://' instead of secure 'https://'.")
+            analysis["status"] = "Suspicious"
+            
+        # 2. URL Shortener Check
+        if any(shortener in hostname for shortener in shorteners):
+            analysis["issues"].append("⚠️ Obfuscated Link: Uses a URL shortener service which hides the destination.")
+            analysis["status"] = "Suspicious"
+            
+        # 3. IP Address Domain Check
+        ip_pattern = r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$'
+        if re.match(ip_pattern, hostname):
+            analysis["issues"].append("🚨 Severe Risk: Uses a raw IP address as a domain, avoiding registration checks.")
+            analysis["status"] = "Danger"
+            
+        # 4. Brand Spoofing Check (Domain Verification)
+        for brand, domains in official_brands.items():
+            if brand in hostname:
+                # If brand keyword is in domain, verify it matches one of the official whitelisted domains
+                is_official = any(off_domain in hostname for off_domain in domains)
+                if not is_official:
+                    analysis["issues"].append(f"🚨 Brand Spoofing: Contains brand keyword '{brand.capitalize()}' but core domain resolves to '{hostname}' instead of official '{domains[0]}'.")
+                    analysis["status"] = "Danger"
+                    break
+                    
+        # 5. Over-long subdomain / phishing pattern checks
+        if hostname.count(".") >= 4:
+            analysis["issues"].append("⚠️ Domain Structure: Excessive number of subdomains (common in credential harvesting spoofing).")
+            if analysis["status"] != "Danger":
+                analysis["status"] = "Suspicious"
+                
+        audit_results.append(analysis)
+        
+    return audit_results
+
+def clean_for_pdf(text):
+    if not isinstance(text, str):
+        return ""
+    # Standard FPDF fonts only support Latin-1 (code points < 256)
+    # Map common emojis to readable text brackets
+    replacements = {
+        "🚨": "[ALERT]",
+        "⚠️": "[WARNING]",
+        "✅": "[SAFE]",
+        "❌": "[FAIL]",
+        "💡": "[TIP]",
+        "⚙️": "[SETTINGS]"
+    }
+    for emoji, replacement in replacements.items():
+        text = text.replace(emoji, replacement)
+        
+    cleaned = ""
+    for char in text:
+        if ord(char) < 256:
+            cleaned += char
+        else:
+            # Fallback for smart punctuation and unsupported symbols
+            if char in ['\u201c', '\u201d']:
+                cleaned += '"'
+            elif char in ['\u2018', '\u2019']:
+                cleaned += "'"
+            elif char == '\u2013':
+                cleaned += '-'
+            else:
+                cleaned += "?"
+    return cleaned
+
+def generate_pdf_report(email_text, svm_res, bert_res, url_res):
+    if not HAS_FPDF:
+        return None
+        
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Title Block
+    pdf.set_font("Helvetica", "B", 20)
+    pdf.set_text_color(30, 58, 138)  # Deep Blue
+    pdf.cell(0, 15, "PhishGuard AI: Forensic Security Audit Report", ln=True, align="C")
+    
+    # Metadata
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(107, 114, 128)  # Grey
+    scan_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ref_id = f"PG-REP-{datetime.datetime.now().strftime('%y%m%d%H%M')}"
+    pdf.cell(0, 5, f"Date Generated: {scan_time} | Case Reference: {ref_id}", ln=True, align="C")
+    pdf.ln(5)
+    pdf.line(10, 32, 200, 32)
+    pdf.ln(10)
+    
+    # Section 1: Consensus Verdict
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.set_text_color(0, 0, 0)
+    pdf.cell(0, 10, "1. Safety Consensus Verdict", ln=True)
+    
+    pred_svm = svm_res["prediction"]
+    pred_bert = bert_res.get("prediction")
+    
+    pdf.set_font("Helvetica", "B", 12)
+    if pred_bert is not None:
+        if pred_svm == 1 and pred_bert == 1:
+            pdf.set_text_color(220, 38, 38)  # Red
+            pdf.cell(0, 8, "VERDICT: [CRITICAL PHISHING ALERT] (Both engines flagged as SPAM)", ln=True)
+        elif pred_svm == 1 or pred_bert == 1:
+            pdf.set_text_color(217, 119, 6)  # Amber
+            pdf.cell(0, 8, "VERDICT: [WARNING] - SUSPICIOUS EMAIL (Single engine flagged as SPAM)", ln=True)
+        else:
+            pdf.set_text_color(22, 163, 74)  # Green
+            pdf.cell(0, 8, "VERDICT: [SAFE EMAIL] (Both engines verified as Ham/Legitimate)", ln=True)
+    else:
+        if pred_svm == 1:
+            pdf.set_text_color(220, 38, 38)
+            pdf.cell(0, 8, "VERDICT: [PHISHING ALERT DETECTED] (SVM flagged as SPAM)", ln=True)
+        else:
+            pdf.set_text_color(22, 163, 74)
+            pdf.cell(0, 8, "VERDICT: [SAFE EMAIL] (SVM verified as Ham/Legitimate)", ln=True)
+            
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(5)
+    
+    # Section 2: Engine Performance
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 10, "2. Classifier Confidence Metrics", ln=True)
+    pdf.set_font("Helvetica", "", 11)
+    
+    svm_lbl = "SPAM / PHISHING" if pred_svm == 1 else "LEGITIMATE (HAM)"
+    pdf.cell(0, 6, f"- Support Vector Machine (LinearSVC): {svm_lbl} (Confidence: {svm_res['prob']*100:.2f}%)", ln=True)
+    
+    if pred_bert is not None:
+        bert_lbl = "SPAM / PHISHING" if pred_bert == 1 else "LEGITIMATE (HAM)"
+        pdf.cell(0, 6, f"- BERT Contextual Deep Learning: {bert_lbl} (Confidence: {bert_res['prob']*100:.2f}%)", ln=True)
+    else:
+        pdf.cell(0, 6, "- BERT Contextual Deep Learning: Disabled / Locked (Libraries missing)", ln=True)
+        
+    pdf.ln(5)
+    
+    # Section 3: URL Audit Report
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 10, "3. Hyperlink Security Audit Details", ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    
+    if not url_res:
+        pdf.cell(0, 6, "- No links or web destination addresses were detected inside the email body.", ln=True)
+    else:
+        for idx, audit in enumerate(url_res, 1):
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.cell(0, 6, f"Link {idx}: {clean_for_pdf(audit['url'])}", ln=True)
+            pdf.set_font("Helvetica", "", 10)
+            pdf.cell(0, 5, f"  Status Assessment: {audit['status'].upper()}", ln=True)
+            if audit["issues"]:
+                for issue in audit["issues"]:
+                    pdf.cell(0, 5, f"  {clean_for_pdf(issue)}", ln=True)
+            else:
+                pdf.cell(0, 5, "  * No structural anomalies or spoofing flags detected for this domain.", ln=True)
+            pdf.ln(2)
+            
+    pdf.ln(5)
+    
+    # Section 4: Email Content Preview
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 10, "4. Scanned Email Text Preview", ln=True)
+    pdf.set_font("Courier", "", 9)
+    pdf.set_text_color(55, 65, 81)
+    
+    preview_txt = email_text[:700] + ("\n... [Truncated for report length]" if len(email_text) > 700 else "")
+    pdf.multi_cell(0, 5, clean_for_pdf(preview_txt))
+    
+    # Return raw PDF bytes
+    return bytes(pdf.output())
 
 # Load Models
 @st.cache_resource
@@ -454,4 +702,72 @@ with tab3:
                             st.metric("Legitimate Confidence Score", f"{(1 - prob_bert)*100:.2f}%")
                             st.progress(float(1 - prob_bert))
                 
+                # -----------------------------------------------------
+                # PART 5: Dynamic URL Security Scanner Audit
+                # -----------------------------------------------------
+                st.markdown("---")
+                st.markdown("### 🔗 Hyperlink Security Audit Report")
+                
+                with st.spinner("Analyzing email hyperlinks..."):
+                    url_audit_results = scan_urls_in_text(email_text)
+                    
+                if not url_audit_results:
+                    st.success("✅ **No hyperlinks detected** in the email body. (Low risk of direct credential harvesting/redirects)")
+                else:
+                    st.info(f"Detected **{len(url_audit_results)}** link(s) in the email content. Review the security audits below:")
+                    
+                    for idx, audit in enumerate(url_audit_results, 1):
+                        st.markdown(f"**Link #{idx}:** `{audit['url']}`")
+                        
+                        # Display status as card
+                        if audit["status"] == "Danger":
+                            st.markdown(f"<div style='background-color:#fee2e2; border-left: 5px solid #dc2626; padding:0.75rem; border-radius:4px; color:#991b1b; font-size:0.9rem; font-weight:bold; margin-bottom:0.5rem;'>🚨 DANGER - MALICIOUS LINK PATTERN DETECTED</div>", unsafe_allow_html=True)
+                        elif audit["status"] == "Suspicious":
+                            st.markdown(f"<div style='background-color:#fef3c7; border-left: 5px solid #d97706; padding:0.75rem; border-radius:4px; color:#92400e; font-size:0.9rem; font-weight:bold; margin-bottom:0.5rem;'>⚠️ SUSPICIOUS - POTENTIAL THREAT VECTOR</div>", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"<div style='background-color:#dcfce7; border-left: 5px solid #16a34a; padding:0.75rem; border-radius:4px; color:#166534; font-size:0.9rem; font-weight:bold; margin-bottom:0.5rem;'>✅ VERIFIED SAFE DOMAIN STRUCTURE</div>", unsafe_allow_html=True)
+                            
+                        # Show issues list
+                        if audit["issues"]:
+                            for issue in audit["issues"]:
+                                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&bull;&nbsp;&nbsp;{issue}")
+                        else:
+                            st.markdown("&nbsp;&nbsp;&nbsp;&nbsp;&bull;&nbsp;&nbsp;No brand spoofing, insecure protocols, or obfuscation indicators identified.")
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        
+                # -----------------------------------------------------
+                # PART 6: Forensic PDF Report Download
+                # -----------------------------------------------------
+                if HAS_FPDF:
+                    st.markdown("---")
+                    st.markdown("### 📄 Export Forensic Audit Report")
+                    
+                    # Package SVM results
+                    svm_results = {
+                        "prediction": int(pred_svm),
+                        "prob": float(prob_svm)
+                    }
+                    
+                    # Package BERT results
+                    bert_results = {}
+                    if HAS_BERT and bert_pipeline is not None:
+                        bert_results = {
+                            "prediction": int(pred_bert),
+                            "prob": float(prob_bert)
+                        }
+                        
+                    # Generate PDF data
+                    try:
+                        pdf_data = generate_pdf_report(email_text, svm_results, bert_results, url_audit_results)
+                        if pdf_data:
+                            st.download_button(
+                                label="Download Forensic PDF Report",
+                                data=pdf_data,
+                                file_name=f"PhishGuard_Report_{datetime.datetime.now().strftime('%y%m%d_%H%M%S')}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True
+                            )
+                    except Exception as e:
+                        st.error(f"Error generating PDF Report: {e}")
+                        
 st.markdown("---")
