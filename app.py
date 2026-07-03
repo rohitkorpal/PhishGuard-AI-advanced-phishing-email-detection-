@@ -149,6 +149,29 @@ def preprocess_text(text):
 from urllib.parse import urlparse
 import datetime
 
+def extract_core_domain(url):
+    try:
+        url_clean = re.sub(r'^https?://', '', url, flags=re.IGNORECASE)
+        url_clean = re.sub(r'^www\.', '', url_clean, flags=re.IGNORECASE)
+        # Strip display names or brackets in case raw emails are passed
+        if '<' in url_clean and '>' in url_clean:
+            url_clean = url_clean.split('<')[-1].split('>')[0]
+        if '@' in url_clean:
+            url_clean = url_clean.split('@')[-1]
+            
+        parts = re.split(r'[:/]', url_clean)
+        hostname = parts[0].lower().strip()
+        
+        host_parts = hostname.split('.')
+        if len(host_parts) > 2:
+            # Handle common double extensions like co.uk, co.in, com.br
+            if host_parts[-2] in ['co', 'com', 'org', 'net', 'gov', 'edu', 'ac', 'res']:
+                return '.'.join(host_parts[-3:])
+            return '.'.join(host_parts[-2:])
+        return hostname
+    except Exception:
+        return url
+
 def get_url_lexical_features(url):
     url_clean = re.sub(r'^https?://', '', url, flags=re.IGNORECASE)
     url_clean = re.sub(r'^www\.', '', url_clean, flags=re.IGNORECASE)
