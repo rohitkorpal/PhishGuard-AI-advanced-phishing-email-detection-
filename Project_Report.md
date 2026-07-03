@@ -154,12 +154,12 @@ graph TD
     
     E1 & E2 & E3 & E4 & E5 --> F[Performance Metric Comparison]
     F --> G[Pick Best Model]
-    G --> H[Deployment in Streamlit UI]
+    G --> H[Deployment in Streamlit UI (SVM + BERT Dual-Engine)]
 ```
 
 The system operates in two core phases: **Training Phase** and **Prediction Phase**.
 1. **Training Phase:** Raw text is preprocessed, converted into numerical vectors, split into training/testing sets, modeled using ML classifiers, and evaluated. The best model and vectorizer are then serialized.
-2. **Prediction Phase:** An end-user inputs text into the Streamlit application. The text is preprocessed using the trained pipeline, vectorized with the saved TF-IDF vectorizer, fed into the saved SVM classifier, and the output label (along with a confidence rating) is displayed to the user.
+2. **Prediction Phase:** An end-user inputs text into the Streamlit application. The system processes the text simultaneously through two independent detection engines: (a) the traditional TF-IDF + LinearSVC pipeline, and (b) a deep learning transformer (BERT/DistilBERT). The predictions from both models are compared, and a consensus safety verdict (High-Confidence Phishing, Suspicious, or Safe) is determined and displayed alongside side-by-side confidence scores.
 
 ---
 
@@ -189,6 +189,9 @@ A non-parametric model that recursively partitions the feature space based on im
 A classifier that fits a maximum-margin hyperplane in the feature space to separate classes:
 $$\min_{\mathbf{w}, b} \frac{1}{2} \|\mathbf{w}\|^2 + C \sum_{i=1}^N \xi_i$$
 Linear SVC is particularly suited for text classification because text features are highly dimensional and often linearly separable. The LinearSVC formulation optimizes the dual problem efficiently, leading to high training speeds and state-of-the-art accuracy [4].
+
+### F. Bidirectional Encoder Representations from Transformers (BERT)
+BERT is a deep learning transformer model designed to pre-train bidirectional representations from unlabeled text by jointly conditioning on both left and right context in all layers. In this project, a fine-tuned lightweight DistilBERT classifier is integrated during the live prediction phase. This captures deep semantic context, contextual shifts, and suspicious intent that traditional word-matching models cannot capture.
 
 ---
 

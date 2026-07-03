@@ -9,6 +9,28 @@ from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from nltk.stem import WordNetLemmatizer
 
+import sys
+import subprocess
+
+# Try to import transformers and torch; auto-install if missing
+try:
+    import transformers
+    import torch
+    from transformers import pipeline
+    HAS_BERT = True
+except ImportError:
+    print("Deep learning libraries (transformers, torch) not found. Installing automatically...")
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers", "torch"])
+        import transformers
+        import torch
+        from transformers import pipeline
+        HAS_BERT = True
+        print("Deep learning libraries installed successfully!")
+    except Exception as e:
+        print(f"Auto-installation of deep learning libraries failed: {e}")
+        HAS_BERT = False
+
 # Setup NLTK paths
 nltk_data_dir = os.path.expanduser("~/nltk_data")
 if nltk_data_dir not in nltk.data.path:
@@ -125,6 +147,15 @@ def load_models():
 
 model, vectorizer = load_models()
 
+@st.cache_resource
+def load_bert_model():
+    if HAS_BERT:
+        try:
+            return pipeline("text-classification", model="mrm8488/bert-tiny-finetuned-sms-spam-detection")
+        except Exception:
+            return None
+    return None
+
 # Sidebar Setup
 st.sidebar.markdown("<h2 style='color:#560bad;'>🛡️ PhishGuard AI</h2>", unsafe_allow_html=True)
 st.sidebar.markdown("""
@@ -147,6 +178,8 @@ st.sidebar.markdown("""
 5. NLTK Stopwords filtering
 6. WordNet Lemmatization
 """)
+
+st.sidebar.markdown("---")
 
 # Main Content
 st.markdown("<div class='info-header'>🛡️ PhishGuard AI: Advanced Phishing Detection System</div>", unsafe_allow_html=True)
@@ -286,73 +319,139 @@ with tab3:
             if email_text.strip() == "":
                 st.warning("Please enter some text to classify.")
             else:
-                # 1. Preprocess
+                # -----------------------------------------------------
+                # PART 1: Run SVM (Traditional ML) Pipeline
+                # -----------------------------------------------------
                 cleaned = preprocess_text(email_text)
-                
-                # Show preprocessed text in an expander for educational value
-                with st.expander("🔍 See Preprocessed Text"):
-                    st.write(f"**Cleaned Tokens:** `{cleaned}`")
-                
-                # 2. Vectorize
                 vectorized = vectorizer.transform([cleaned])
+                pred_svm = model.predict(vectorized)[0]
                 
-                # 3. Predict
-                prediction = model.predict(vectorized)[0]
-                
-                # Probability calculation
-                probability = 0.5
+                # SVM Probability
+                prob_svm = 0.5
                 if hasattr(model, "predict_proba"):
                     probs = model.predict_proba(vectorized)[0]
-                    probability = probs[1]
+                    prob_svm = probs[1]
                 elif hasattr(model, "decision_function"):
-                    # Sigmoid scaling for SVM decision score
                     decision_score = model.decision_function(vectorized)[0]
-                    probability = 1 / (1 + np.exp(-decision_score))
+                    prob_svm = 1 / (1 + np.exp(-decision_score))
                 
-                # Heuristic hybrid override for common phishing/spam templates
+                # Apply rules override for SVM
                 text_lower = email_text.lower()
-                
-                # Case 1: Lottery / Prize Spam
                 lottery_spam = "free" in text_lower and any(w in text_lower for w in ["won", "prize", "iphone", "claim"])
                 
-                # Case 2: Phishing / Account Security / Urgency
-                # Direct High-Risk Threat Keywords (trigger override directly with action request)
                 threat_words = ["suspend", "suspension", "restrict", "restricted", "closure", "deactivate", "deactivation",
                                 "unusual login", "security alert", "action required", "blocked", "compromised", "unauthorized"]
-                
-                # Soft / Polite Phishing words (higher False Positive risk; require link CTA and ML model backing)
                 soft_words = ["deadline", "validate", "validation", "upgrade", "uninterrupted", "enhancement"]
                 action_words = ["verify", "verification", "confirm", "update", "restore", "portal", "link", "click here", "login"]
-                
-                # Check for call-to-action indicators (references to links, forms, buttons)
                 link_cta = ["link", "url", "http", "click", "below", "button", "visit", "form", "portal", "website"]
                 has_link_instruction = any(w in text_lower for w in link_cta)
                 
-                # Rule 2a: Standard high-risk phishing match
                 phishing_spam_urgent = any(w in text_lower for w in threat_words) and any(w in text_lower for w in action_words)
-                
-                # Rule 2b: Soft-phishing match (requires soft word + action word + link CTA + ML model suspicion)
-                phishing_spam_soft = (
+                phishing_spam_soft_svm = (
                     any(w in text_lower for w in soft_words) and 
                     any(w in text_lower for w in action_words) and 
                     has_link_instruction and 
-                    prediction == 1
+                    pred_svm == 1
                 )
+                phishing_spam_svm = phishing_spam_urgent or phishing_spam_soft_svm
                 
-                phishing_spam = phishing_spam_urgent or phishing_spam_soft
+                if lottery_spam or phishing_spam_svm:
+                    pred_svm = 1
+                    prob_svm = max(prob_svm, 0.95)
+
+                # -----------------------------------------------------
+                # PART 2: Run BERT (Deep Learning) Pipeline
+                # -----------------------------------------------------
+                pred_bert = None
+                prob_bert = None
+                bert_pipeline = None
                 
-                if lottery_spam or phishing_spam:
-                    prediction = 1
-                    probability = max(probability, 0.95)
-                
-                # Determine outcome text
-                if prediction == 1:
-                    st.markdown("<div class='result-box spam-box'>⚠️ SPAM / PHISHING DETECTED</div>", unsafe_allow_html=True)
-                    st.metric("Spam Confidence Score", f"{probability*100:.2f}%")
-                    st.progress(float(probability))
+                if HAS_BERT:
+                    with st.spinner("Loading BERT model weights... (This can take a few seconds on first run)"):
+                        bert_pipeline = load_bert_model()
+                    
+                    if bert_pipeline is not None:
+                        with st.spinner("Analyzing text using BERT..."):
+                            truncated_text = email_text[:1000]
+                            res = bert_pipeline(truncated_text)[0]
+                            
+                            pred_bert = 1 if res['label'] == 'LABEL_1' else 0
+                            prob_bert = float(res['score'])
+                            if pred_bert == 0:
+                                prob_bert = 1.0 - prob_bert
+                                
+                            # Apply overrides to BERT
+                            phishing_spam_soft_bert = (
+                                any(w in text_lower for w in soft_words) and 
+                                any(w in text_lower for w in action_words) and 
+                                has_link_instruction and 
+                                pred_bert == 1
+                            )
+                            phishing_spam_bert = phishing_spam_urgent or phishing_spam_soft_bert
+                            if lottery_spam or phishing_spam_bert:
+                                pred_bert = 1
+                                prob_bert = max(prob_bert, 0.95)
+
+                # -----------------------------------------------------
+                # PART 3: Consensus Verdict Banner
+                # -----------------------------------------------------
+                st.markdown("### 🛡️ Unified Safety Verdict")
+                if HAS_BERT and bert_pipeline is not None:
+                    # Consensus between SVM and BERT
+                    if pred_svm == 1 and pred_bert == 1:
+                        st.error("🚨 **CRITICAL VERDICT: HIGH CONFIDENCE PHISHING ALERT** (Both traditional ML and deep learning models flagged this email as spam/phishing)")
+                    elif pred_svm == 1 or pred_bert == 1:
+                        st.warning("⚠️ **WARNING VERDICT: SUSPICIOUS ACTIVITY** (One of the models flagged this email. Caution is strongly advised)")
+                    else:
+                        st.success("✅ **SAFE VERDICT: LEGITIMATE EMAIL** (Both models verified this email as safe and legitimate)")
                 else:
-                    st.markdown("<div class='result-box ham-box'>✅ LEGITIMATE (HAM) EMAIL</div>", unsafe_allow_html=True)
-                    st.metric("Legitimate Confidence Score", f"{(1 - probability)*100:.2f}%")
-                    st.progress(float(1 - probability))
+                    # SVM only verdict
+                    if pred_svm == 1:
+                        st.error("🚨 **VERDICT: PHISHING ALERT DETECTED** (The SVM Classifier flagged this email as spam/phishing)")
+                    else:
+                        st.success("✅ **VERDICT: LEGITIMATE EMAIL** (The SVM Classifier verified this email as safe)")
+
+                # -----------------------------------------------------
+                # PART 4: Side-by-Side Analysis Panels
+                # -----------------------------------------------------
+                col_l, col_r = st.columns(2)
+                
+                with col_l:
+                    st.markdown("#### 📊 Traditional ML (LinearSVC)")
+                    # Cleaned tokens view
+                    with st.expander("🔍 See Preprocessed Text"):
+                        st.write(f"**Cleaned Tokens:** `{cleaned}`")
+                        
+                    if pred_svm == 1:
+                        st.markdown("<div class='result-box spam-box'>⚠️ SPAM DETECTED</div>", unsafe_allow_html=True)
+                        st.metric("Spam Confidence Score", f"{prob_svm*100:.2f}%")
+                        st.progress(float(prob_svm))
+                    else:
+                        st.markdown("<div class='result-box ham-box'>✅ LEGITIMATE (HAM)</div>", unsafe_allow_html=True)
+                        st.metric("Legitimate Confidence Score", f"{(1 - prob_svm)*100:.2f}%")
+                        st.progress(float(1 - prob_svm))
+                        
+                with col_r:
+                    st.markdown("#### 🤖 Deep Learning (BERT)")
+                    if not HAS_BERT:
+                        st.info("💡 **BERT Model is Locked**")
+                        st.warning("Hugging Face `transformers` and `torch` libraries are required to enable local BERT analysis.")
+                        st.code("pip install transformers torch", language="bash")
+                    elif bert_pipeline is None:
+                        st.error("Failed to load BERT model weights from cache.")
+                    else:
+                        with st.expander("🔍 See BERT Details"):
+                            st.write(f"**BERT Label:** `{res['label']}`")
+                            st.write(f"**Raw BERT Score:** `{res['score']:.4f}`")
+                            st.write("**Representation:** Dense Contextual Word Embeddings (768 dimensions)")
+                            
+                        if pred_bert == 1:
+                            st.markdown("<div class='result-box spam-box'>⚠️ SPAM DETECTED</div>", unsafe_allow_html=True)
+                            st.metric("Spam Confidence Score", f"{prob_bert*100:.2f}%")
+                            st.progress(float(prob_bert))
+                        else:
+                            st.markdown("<div class='result-box ham-box'>✅ LEGITIMATE (HAM)</div>", unsafe_allow_html=True)
+                            st.metric("Legitimate Confidence Score", f"{(1 - prob_bert)*100:.2f}%")
+                            st.progress(float(1 - prob_bert))
                 
 st.markdown("---")
