@@ -223,6 +223,30 @@ def clean_homoglyphs(text):
         text_clean = text_clean.replace(hk, hv)
     return text_clean
 
+def is_gibberish_domain(sld):
+    if len(sld) < 10:
+        return False
+    vowels = set("aeiou")
+    vowels_count = sum(1 for c in sld if c in vowels)
+    vowel_ratio = vowels_count / len(sld)
+    
+    consonants = set("bcdfghjklmnpqrstvwxyz")
+    max_con = 0
+    curr_con = 0
+    for c in sld:
+        if c in consonants:
+            curr_con += 1
+            if curr_con > max_con:
+                max_con = curr_con
+        else:
+            curr_con = 0
+            
+    if vowel_ratio < 0.15:
+        return True
+    if max_con >= 7:
+        return True
+    return False
+
 def audit_email_headers(display_name: str, email_address: str, reply_to_address: Optional[str] = None):
     if not email_address.strip():
         return None
@@ -273,6 +297,11 @@ def audit_email_headers(display_name: str, email_address: str, reply_to_address:
     core_domain = extract_core_domain(email_address)
     domain_sld = core_domain.split('.')[0] if '.' in core_domain else core_domain
     
+    # Gibberish/DGA Domain Check
+    if is_gibberish_domain(domain_sld):
+        audit_results["issues"].append(f"🚨 Suspicious Sender Domain: The domain '{core_domain}' contains highly randomized character patterns (possible DGA spoofing).")
+        audit_results["status"] = "Danger"
+        
     # Typosquatting check
     sld_normalized = clean_homoglyphs(domain_sld)
     for brand, off_domain in official_brands.items():
@@ -320,13 +349,20 @@ def audit_email_headers(display_name: str, email_address: str, reply_to_address:
                 audit_results["issues"].append(f"⚠️ Executive Identity Flag: Sender username starts with high-priority role '{keyword.upper()}'. Validate via alternative contact channel.")
                 audit_results["status"] = "Suspicious"
                 
-    # Reply-To Mismatch check
+    # Reply-To Mismatch and Gibberish check
     if reply_to_address and reply_to_address.strip():
         reply_to_clean = reply_to_address.strip()
         if "@" in reply_to_clean:
             reply_parts = reply_to_clean.split("@")
             if len(reply_parts) == 2:
                 reply_core_domain = extract_core_domain(reply_to_clean)
+                reply_domain_sld = reply_core_domain.split('.')[0] if '.' in reply_core_domain else reply_core_domain
+                
+                # Check for DGA on Reply-To Domain
+                if is_gibberish_domain(reply_domain_sld):
+                    audit_results["issues"].append(f"🚨 Suspicious Reply-To Domain: The Reply-To domain '{reply_core_domain}' contains highly randomized character patterns (possible DGA spoofing).")
+                    audit_results["status"] = "Danger"
+                
                 if reply_core_domain != core_domain:
                     audit_results["issues"].append(f"🚨 Reply-To Header Mismatch: Reply-To address '{reply_to_clean}' points to a different core domain than the From address '{email_address}'. Replies will be routed to an external domain.")
                     audit_results["status"] = "Danger"
@@ -805,6 +841,13 @@ def submit_feedback(req: FeedbackRequest, background_tasks: BackgroundTasks):
 def run_retrain(background_tasks: BackgroundTasks):
     background_tasks.add_task(retrain_models_task)
     return {"status": "success", "message": "Model retraining initiated in the background."}
+
+# WSGI adapter wrapper for compatibility with WSGI-only servers (like PythonAnywhere)
+try:
+    from a2wsgi import ASGIMiddleware
+    wsgi_app = ASGIMiddleware(app)
+except ImportError:
+    wsgi_app = None
 
 if __name__ == "__main__":
     import uvicorn

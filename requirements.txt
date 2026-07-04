@@ -22,3 +22,4 @@ scipy>=1.10.0
 # API Backend and Extension Support
 fastapi>=0.95.0
 uvicorn>=0.20.0
+a2wsgi>=1.7.0

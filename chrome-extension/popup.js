@@ -468,21 +468,37 @@ function extractEmailContents() {
       result.senderEmail = senderElement.getAttribute('email') || '';
     }
     
-    // 2. Get Reply-To Info
-    // If headers details are visible, we can look for specific keywords
-    const detailedHeaders = document.querySelector('.ajy');
-    if (detailedHeaders) {
-      // Click expansion details if we can
-      const detailsRows = document.querySelectorAll('.ajz tr');
-      detailsRows.forEach(row => {
-        const text = row.textContent.toLowerCase();
-        if (text.includes('reply-to:') || text.includes('reply-to')) {
-          const cells = row.querySelectorAll('td');
-          if (cells.length > 1) {
+    // 2. Get Reply-To Info (Class-independent double-failsafe)
+    // Failsafe A: Scan all table rows in the document for key-value labels
+    const allRows = document.querySelectorAll('tr');
+    allRows.forEach(row => {
+      const text = row.textContent.toLowerCase();
+      if (text.includes('reply-to:') || text.includes('reply-to')) {
+        const cells = row.querySelectorAll('td');
+        if (cells.length > 1) {
+          if (cells[0].textContent.toLowerCase().includes('reply-to') || cells[0].textContent.toLowerCase().includes('reply_to')) {
             result.replyTo = cells[1].textContent.trim();
           }
         }
-      });
+      }
+    });
+
+    // Failsafe B: If Failsafe A missed it, scan for any label element containing 'reply-to:' text
+    if (!result.replyTo) {
+      const allLabels = document.querySelectorAll('td, span, div, b');
+      for (const el of allLabels) {
+        const txt = el.textContent.trim().toLowerCase();
+        if (txt === 'reply-to:' || txt === 'reply-to') {
+          const parent = el.parentElement;
+          if (parent) {
+            const siblings = parent.querySelectorAll('td, span, div');
+            if (siblings.length > 1) {
+              result.replyTo = siblings[siblings.length - 1].textContent.trim();
+              break;
+            }
+          }
+        }
+      }
     }
     
     // 3. Get Body Text

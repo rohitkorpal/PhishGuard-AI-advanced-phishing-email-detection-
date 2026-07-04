@@ -613,3 +613,11 @@ button {
 .badge-safe { background: rgba(16, 185, 129, 0.15); color: var(--color-safe); }
 .badge-suspicious { background: rgba(245, 158, 11, 0.15); color: var(--color-suspicious); }
 .badge-danger { background: rgba(239, 68, 68, 0.15); color: var(--color-danger); }
+
+.input-helper-tip {
+  font-size: 10px;
+  color: var(--text-muted);
+  display: block;
+  margin-top: 4px;
+  line-height: 1.3;
+}
