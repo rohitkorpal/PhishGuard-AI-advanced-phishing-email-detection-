@@ -38,6 +38,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const bertScoreRow = document.getElementById('bert-score-row');
   const bertScoreVal = document.getElementById('bert-score-val');
   const bertBar = document.getElementById('bert-bar');
+  const ensembleScoreVal = document.getElementById('ensemble-score-val');
+  const ensembleBar = document.getElementById('ensemble-bar');
   
   const headerResultsCard = document.getElementById('header-results-card');
   const headerStatusPill = document.getElementById('header-status-pill');
@@ -131,6 +133,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Reset heights/fills
     svmBar.style.width = '0%';
     bertBar.style.width = '0%';
+    ensembleBar.style.width = '0%';
 
     // Reset feedback buttons
     flagPhishBtn.disabled = false;
@@ -323,6 +326,14 @@ document.addEventListener('DOMContentLoaded', () => {
       bertBar.style.background = data.bert.prediction === 1 ? 'var(--color-danger)' : 'var(--color-safe)';
     } else {
       bertScoreRow.style.display = 'none';
+    }
+    
+    // Set Ensemble Progress Bar
+    if (data.ensemble) {
+      const ensConf = data.ensemble.confidence * 100;
+      ensembleScoreVal.innerText = `${ensConf.toFixed(1)}% (${data.ensemble.score > 0.5 ? 'Spam' : 'Safe'})`;
+      ensembleBar.style.width = `${ensConf}%`;
+      ensembleBar.style.background = data.ensemble.score > 0.5 ? 'var(--color-danger)' : 'var(--color-safe)';
     }
     
     // Render Header results

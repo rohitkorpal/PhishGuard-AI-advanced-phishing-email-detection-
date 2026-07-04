@@ -138,6 +138,15 @@ lemmatizer, stop_words = load_nlp_resources()
 def preprocess_text(text):
     if not isinstance(text, str):
         return ""
+    # 1. Anti-Evasion: Strip zero-width & invisible characters
+    invisible_chars = ['\u200b', '\u200c', '\u200d', '\u200e', '\u200f', '\ufeff']
+    for char in invisible_chars:
+        text = text.replace(char, '')
+        
+    # 2. Anti-Evasion: Unicode Normalization to resolve Homoglyphs (confusables)
+    import unicodedata
+    text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii')
+    
     # Lowercase
     text = text.lower()
     # Remove HTML tags
@@ -614,6 +623,61 @@ def check_sender_name_address_match(display_name, email_address):
             
     return False
 
+def check_email_auth_records(domain):
+    if not domain or domain in {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "aol.com", "icloud.com", "mail.com"}:
+        return {"spf": "Valid", "dmarc": "Valid", "warnings": []}
+        
+    warnings = []
+    spf_status = "Missing"
+    dmarc_status = "Missing"
+    
+    import requests
+    # 1. Query SPF
+    try:
+        url = f"https://cloudflare-dns.com/dns-query?name={domain}&type=TXT"
+        headers = {"Accept": "application/dns-json"}
+        r = requests.get(url, headers=headers, timeout=2.5)
+        if r.status_code == 200:
+            data = r.json()
+            answers = data.get("Answer", [])
+            for ans in answers:
+                txt_data = ans.get("data", "")
+                if "v=spf1" in txt_data:
+                    spf_status = "Valid"
+                    if "+all" in txt_data or "?all" in txt_data:
+                        warnings.append(f"⚠️ Weak SPF Record: Domain '{domain}' has a permissive policy ('+all' or '?all') allowing spoofed relays.")
+                    break
+        if spf_status == "Missing":
+            warnings.append(f"🚨 Missing SPF Record: Domain '{domain}' lacks a Sender Policy Framework TXT record, making it easy to spoof.")
+    except Exception:
+        pass
+        
+    # 2. Query DMARC
+    try:
+        url = f"https://cloudflare-dns.com/dns-query?name=_dmarc.{domain}&type=TXT"
+        headers = {"Accept": "application/dns-json"}
+        r = requests.get(url, headers=headers, timeout=2.5)
+        if r.status_code == 200:
+            data = r.json()
+            answers = data.get("Answer", [])
+            for ans in answers:
+                txt_data = ans.get("data", "")
+                if "v=DMARC1" in txt_data:
+                    dmarc_status = "Valid"
+                    if "p=none" in txt_data:
+                        warnings.append(f"⚠️ Weak DMARC Policy: Domain '{domain}' has 'p=none' which only monitors but doesn't block spoofed emails.")
+                    break
+        if dmarc_status == "Missing":
+            warnings.append(f"🚨 Missing DMARC Policy: Domain '{domain}' has no DMARC record to instruct mail servers to reject spoofed emails.")
+    except Exception:
+        pass
+        
+    return {
+        "spf": spf_status,
+        "dmarc": dmarc_status,
+        "warnings": warnings
+    }
+
 def audit_email_headers(display_name, email_address, reply_to_address=None, mailed_by=None):
     if not email_address.strip():
         return None
@@ -695,6 +759,15 @@ def audit_email_headers(display_name, email_address, reply_to_address=None, mail
         audit_results["issues"].append(f"⚠️ Sender Identity Mismatch: Display name '{display_name}' has no lexical correlation or visual overlap with the sending email address '{email_address}'. This is a common spoofing tactic.")
         if audit_results["status"] == "Safe":
             audit_results["status"] = "Suspicious"
+            
+    # Email Authentication Protocol DNS Checks (SPF/DMARC)
+    auth_res = check_email_auth_records(domain)
+    if auth_res["warnings"]:
+        for warning in auth_res["warnings"]:
+            audit_results["issues"].append(warning)
+        if auth_res["spf"] == "Missing" or auth_res["dmarc"] == "Missing":
+            if audit_results["status"] == "Safe":
+                audit_results["status"] = "Suspicious"
         
     # Check 1: Brand Spoofing via Fuzzy Matching & Homoglyphs (Typosquatting)
     sld_normalized = clean_homoglyphs(domain_sld)
@@ -1344,16 +1417,18 @@ with tab3:
                 has_phishing_verdict = False
                 has_suspicious_verdict = False
                 
+                # Stacking Model Stacking Score
+                if HAS_BERT and bert_pipeline is not None and prob_bert is not None:
+                    ensemble_score = (prob_svm * 0.4) + (prob_bert * 0.6)
+                else:
+                    ensemble_score = prob_svm
+                
                 if local_blacklist_triggered:
                     has_phishing_verdict = True
-                elif HAS_BERT and bert_pipeline is not None:
-                    if pred_svm == 1 and pred_bert == 1:
-                        has_phishing_verdict = True
-                    elif pred_svm == 1 or pred_bert == 1:
-                        has_suspicious_verdict = True
-                else:
-                    if pred_svm == 1:
-                        has_phishing_verdict = True
+                elif ensemble_score > 0.75:
+                    has_phishing_verdict = True
+                elif ensemble_score > 0.5:
+                    has_suspicious_verdict = True
                         
                 # Check headers status
                 if header_audit and header_audit["status"] == "Danger":
@@ -1436,6 +1511,30 @@ with tab3:
                             st.markdown("<div class='result-box ham-box'>✅ LEGITIMATE (HAM)</div>", unsafe_allow_html=True)
                             st.metric("Legitimate Confidence Score", f"{(1 - prob_bert)*100:.2f}%")
                             st.progress(float(1 - prob_bert))
+                
+                # -----------------------------------------------------
+                # PART 4.5: Ensemble Stacking Fusion Display
+                # -----------------------------------------------------
+                st.markdown("---")
+                st.markdown("### 🤖 Stacking Ensemble Classifier Fusion")
+                
+                ensemble_verdict = "Spam / Phishing" if ensemble_score > 0.5 else "Legitimate (Ham)"
+                ensemble_color = "#dc2626" if ensemble_score > 0.5 else "#16a34a"
+                
+                st.markdown(f"""
+                <div style='background-color:#f3f4f6; border-left: 5px solid {ensemble_color}; padding:1.25rem; border-radius:8px; margin-bottom:1rem;'>
+                    <h4 style='margin:0; color:#111827; font-family:sans-serif;'>🤖 Ensemble Fusion Verdict: <span style='color:{ensemble_color};'>{ensemble_verdict.upper()}</span></h4>
+                    <p style='margin:8px 0 0 0; font-size:0.95rem; color:#4b5563; font-family:sans-serif;'>
+                        Stacking Ensemble Fusion calculates a weighted consensus score combining <b>Traditional SVM (LinearSVC)</b> (weight: 40%) and <b>BERT Contextual Embeddings</b> (weight: 60%).
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                col_e1, col_e2 = st.columns(2)
+                with col_e1:
+                    st.metric("Ensemble Consensus Score", f"{ensemble_score * 100:.2f}%")
+                with col_e2:
+                    st.progress(float(ensemble_score))
                 
                 # -----------------------------------------------------
                 # PART 5: Dynamic URL Security Scanner Audit

@@ -141,6 +141,15 @@ bert_pipeline = load_bert_model()
 def preprocess_text(text):
     if not isinstance(text, str):
         return ""
+    # 1. Anti-Evasion: Strip zero-width & invisible characters
+    invisible_chars = ['\u200b', '\u200c', '\u200d', '\u200e', '\u200f', '\ufeff']
+    for char in invisible_chars:
+        text = text.replace(char, '')
+        
+    # 2. Anti-Evasion: Unicode Normalization to resolve Homoglyphs (confusables)
+    import unicodedata
+    text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii')
+    
     text = text.lower()
     text = re.sub(r'<[^>]+>', '', text)
     text = re.sub(r'https?://\S+|www\.\S+', '', text)
@@ -279,6 +288,61 @@ def check_sender_name_address_match(display_name: str, email_address: str) -> bo
             
     return False
 
+def check_email_auth_records(domain: str):
+    if not domain or domain in {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "aol.com", "icloud.com", "mail.com"}:
+        return {"spf": "Valid", "dmarc": "Valid", "warnings": []}
+        
+    warnings = []
+    spf_status = "Missing"
+    dmarc_status = "Missing"
+    
+    import requests
+    # 1. Query SPF
+    try:
+        url = f"https://cloudflare-dns.com/dns-query?name={domain}&type=TXT"
+        headers = {"Accept": "application/dns-json"}
+        r = requests.get(url, headers=headers, timeout=2.5)
+        if r.status_code == 200:
+            data = r.json()
+            answers = data.get("Answer", [])
+            for ans in answers:
+                txt_data = ans.get("data", "")
+                if "v=spf1" in txt_data:
+                    spf_status = "Valid"
+                    if "+all" in txt_data or "?all" in txt_data:
+                        warnings.append(f"⚠️ Weak SPF Record: Domain '{domain}' has a permissive policy ('+all' or '?all') allowing spoofed relays.")
+                    break
+        if spf_status == "Missing":
+            warnings.append(f"🚨 Missing SPF Record: Domain '{domain}' lacks a Sender Policy Framework TXT record, making it easy to spoof.")
+    except Exception:
+        pass
+        
+    # 2. Query DMARC
+    try:
+        url = f"https://cloudflare-dns.com/dns-query?name=_dmarc.{domain}&type=TXT"
+        headers = {"Accept": "application/dns-json"}
+        r = requests.get(url, headers=headers, timeout=2.5)
+        if r.status_code == 200:
+            data = r.json()
+            answers = data.get("Answer", [])
+            for ans in answers:
+                txt_data = ans.get("data", "")
+                if "v=DMARC1" in txt_data:
+                    dmarc_status = "Valid"
+                    if "p=none" in txt_data:
+                        warnings.append(f"⚠️ Weak DMARC Policy: Domain '{domain}' has 'p=none' which only monitors but doesn't block spoofed emails.")
+                    break
+        if dmarc_status == "Missing":
+            warnings.append(f"🚨 Missing DMARC Policy: Domain '{domain}' has no DMARC record to instruct mail servers to reject spoofed emails.")
+    except Exception:
+        pass
+        
+    return {
+        "spf": spf_status,
+        "dmarc": dmarc_status,
+        "warnings": warnings
+    }
+
 def audit_email_headers(display_name: str, email_address: str, reply_to_address: Optional[str] = None, mailed_by: Optional[str] = None):
     if not email_address.strip():
         return None
@@ -339,6 +403,15 @@ def audit_email_headers(display_name: str, email_address: str, reply_to_address:
         audit_results["issues"].append(f"⚠️ Sender Identity Mismatch: Display name '{display_name}' has no lexical correlation or visual overlap with the sending email address '{email_address}'. This is a common spoofing tactic.")
         if audit_results["status"] == "Safe":
             audit_results["status"] = "Suspicious"
+            
+    # Email Authentication Protocol DNS Checks (SPF/DMARC)
+    auth_res = check_email_auth_records(domain)
+    if auth_res["warnings"]:
+        for warning in auth_res["warnings"]:
+            audit_results["issues"].append(warning)
+        if auth_res["spf"] == "Missing" or auth_res["dmarc"] == "Missing":
+            if audit_results["status"] == "Safe":
+                audit_results["status"] = "Suspicious"
         
     # Typosquatting check
     sld_normalized = clean_homoglyphs(domain_sld)
@@ -797,17 +870,19 @@ def scan_email(req: ScanRequest):
     # 3. Dynamic URL Scanning (includes checking local blacklists)
     url_audit_results = scan_urls_in_text(text)
     
-    # 4. Consensus Verdict logic
-    verdict = "Safe"
-    if bert_pipeline is not None and pred_bert is not None:
-        if pred_svm == 1 and pred_bert == 1:
-            verdict = "Danger"
-        elif pred_svm == 1 or pred_bert == 1:
-            verdict = "Suspicious"
+    # 4. Stacking Model Fusion
+    if bert_pipeline is not None and prob_bert is not None:
+        ensemble_score = (prob_svm * 0.4) + (prob_bert * 0.6)
     else:
-        if pred_svm == 1:
-            verdict = "Danger"
-            
+        ensemble_score = prob_svm
+        
+    ensemble_verdict_idx = 1 if ensemble_score > 0.5 else 0
+    
+    # 5. Consensus Verdict logic based on Stacking Fusion
+    verdict = "Safe"
+    if ensemble_verdict_idx == 1:
+        verdict = "Danger" if ensemble_score > 0.75 else "Suspicious"
+        
     # Elevate if headers audit or links or local blacklists are danger
     if local_blacklist_triggered:
         verdict = "Danger"
@@ -821,22 +896,20 @@ def scan_email(req: ScanRequest):
     elif any(audit["status"] == "Suspicious" for audit in url_audit_results) and verdict == "Safe":
         verdict = "Suspicious"
         
-    # Detailed Consensus message
+    # Detailed Consensus message using Ensemble calculations
     if local_blacklist_triggered:
         consensus_msg = "🚨 CRITICAL THREAT: Local threat database has flagged the sender domain or email address."
-    elif bert_pipeline is not None and pred_bert is not None:
-        if pred_svm == 1 and pred_bert == 1:
-            consensus_msg = "HIGH-CONFIDENCE PHISHING ALERT (Both traditional ML and Deep Learning flagged spam)"
-        elif pred_svm == 1 or pred_bert == 1:
-            consensus_msg = "SUSPICIOUS ACTIVITY ADVISORY (One ML classifier flagged anomalies, proceed with caution)"
+    elif bert_pipeline is not None and prob_bert is not None:
+        if ensemble_verdict_idx == 1:
+            consensus_msg = f"HIGH-CONFIDENCE PHISHING ALERT (Ensemble Fusion Score: {ensemble_score*100:.1f}%)"
         else:
-            consensus_msg = "SAFE EMAIL (Both classifiers verified structures as legitimate)"
+            consensus_msg = f"SAFE EMAIL (Ensemble Fusion Score: {ensemble_score*100:.1f}%)"
     else:
-        if pred_svm == 1:
-            consensus_msg = "PHISHING ALERT DETECTED (Traditional SVM Classifier flagged spam patterns)"
+        if ensemble_verdict_idx == 1:
+            consensus_msg = f"PHISHING ALERT DETECTED (Traditional SVM Classifier flagged spam patterns, Fusion: {ensemble_score*100:.1f}%)"
         else:
-            consensus_msg = "SAFE EMAIL (Traditional SVM Classifier verified safety)"
-
+            consensus_msg = f"SAFE EMAIL (Traditional SVM Classifier verified safety, Fusion: {ensemble_score*100:.1f}%)"
+ 
     return {
         "verdict": verdict,
         "consensus_verdict_details": consensus_msg,
@@ -848,6 +921,11 @@ def scan_email(req: ScanRequest):
             "available": bert_pipeline is not None,
             "prediction": pred_bert,
             "confidence": prob_bert if pred_bert == 1 else (1.0 - prob_bert) if prob_bert is not None else None
+        },
+        "ensemble": {
+            "score": ensemble_score,
+            "verdict": "Spam / Phishing" if ensemble_verdict_idx == 1 else "Legitimate (Ham)",
+            "confidence": ensemble_score if ensemble_verdict_idx == 1 else (1.0 - ensemble_score)
         },
         "header_audit": header_audit,
         "url_audit": url_audit_results
