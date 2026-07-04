@@ -1079,6 +1079,10 @@ if st.sidebar.button("🔄 Force Retrain Models", key="sidebar_retrain_btn"):
         t.start()
         st.sidebar.success("Retraining started asynchronously!")
 
+# Sidebar Footer Credit
+st.sidebar.markdown("---")
+st.sidebar.markdown("<div style='text-align: center; color: #7209b7; font-size: 0.9rem; font-weight: bold; padding: 10px; background: #f3f0ff; border-radius: 8px; border-left: 4px solid #560bad;'>🚀 Made by Rohit</div>", unsafe_allow_html=True)
+
 st.sidebar.markdown("---")
 
 # Main Content
@@ -1532,9 +1536,14 @@ with tab3:
                 
                 col_e1, col_e2 = st.columns(2)
                 with col_e1:
-                    st.metric("Ensemble Consensus Score", f"{ensemble_score * 100:.2f}%")
-                with col_e2:
-                    st.progress(float(ensemble_score))
+                    if ensemble_score > 0.5:
+                        st.metric("Spam Confidence Score", f"{ensemble_score * 100:.2f}%")
+                        with col_e2:
+                            st.progress(float(ensemble_score))
+                    else:
+                        st.metric("Legitimate Confidence Score", f"{(1.0 - ensemble_score) * 100:.2f}%")
+                        with col_e2:
+                            st.progress(float(1.0 - ensemble_score))
                 
                 # -----------------------------------------------------
                 # PART 5: Dynamic URL Security Scanner Audit

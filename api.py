@@ -899,16 +899,24 @@ def scan_email(req: ScanRequest):
     # Detailed Consensus message using Ensemble calculations
     if local_blacklist_triggered:
         consensus_msg = "🚨 CRITICAL THREAT: Local threat database has flagged the sender domain or email address."
+    elif any(audit["status"] == "Danger" for audit in url_audit_results):
+        consensus_msg = f"🚨 DANGER: Malicious URL detected in email body (Text Fusion: {(1.0 - ensemble_score)*100 if ensemble_verdict_idx == 0 else ensemble_score*100:.1f}%)"
+    elif header_audit and header_audit["status"] == "Danger":
+        consensus_msg = f"🚨 DANGER: High-risk sender spoofing detected (Text Fusion: {(1.0 - ensemble_score)*100 if ensemble_verdict_idx == 0 else ensemble_score*100:.1f}%)"
+    elif any(audit["status"] == "Suspicious" for audit in url_audit_results):
+        consensus_msg = f"⚠️ SUSPICIOUS: Potential threat links detected (Text Fusion: {(1.0 - ensemble_score)*100 if ensemble_verdict_idx == 0 else ensemble_score*100:.1f}%)"
+    elif header_audit and header_audit["status"] == "Suspicious":
+        consensus_msg = f"⚠️ SUSPICIOUS: Mismatch in sender alignment (Text Fusion: {(1.0 - ensemble_score)*100 if ensemble_verdict_idx == 0 else ensemble_score*100:.1f}%)"
     elif bert_pipeline is not None and prob_bert is not None:
         if ensemble_verdict_idx == 1:
             consensus_msg = f"HIGH-CONFIDENCE PHISHING ALERT (Ensemble Fusion Score: {ensemble_score*100:.1f}%)"
         else:
-            consensus_msg = f"SAFE EMAIL (Ensemble Fusion Score: {ensemble_score*100:.1f}%)"
+            consensus_msg = f"SAFE EMAIL (Ensemble Fusion Score: {(1.0 - ensemble_score)*100:.1f}%)"
     else:
         if ensemble_verdict_idx == 1:
             consensus_msg = f"PHISHING ALERT DETECTED (Traditional SVM Classifier flagged spam patterns, Fusion: {ensemble_score*100:.1f}%)"
         else:
-            consensus_msg = f"SAFE EMAIL (Traditional SVM Classifier verified safety, Fusion: {ensemble_score*100:.1f}%)"
+            consensus_msg = f"SAFE EMAIL (Traditional SVM Classifier verified safety, Fusion: {(1.0 - ensemble_score)*100:.1f}%)"
  
     return {
         "verdict": verdict,
