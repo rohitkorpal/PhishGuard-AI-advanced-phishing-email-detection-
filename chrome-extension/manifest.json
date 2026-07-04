@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "PhishGuard AI - Email & Link Protection",
+  "version": "1.0",
+  "description": "Real-time security auditing and NLP phishing classification of email texts, headers, and hyperlinks.",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://mail.google.com/*",
+        "*://outlook.live.com/*",
+        "*://outlook.office.com/*",
+        "*://outlook.office365.com/*"
+      ],
+      "js": ["content.js"]
+    }
+  ]
+}

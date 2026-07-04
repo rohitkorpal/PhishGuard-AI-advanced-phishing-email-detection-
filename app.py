@@ -11,6 +11,9 @@ from nltk.stem import WordNetLemmatizer
 
 import sys
 import subprocess
+import json
+import csv
+import threading
 
 # Try to import transformers and torch; auto-install if missing
 try:
@@ -262,6 +265,14 @@ def scan_urls_in_text(text):
             
         if not hostname:
             continue
+            
+        # Check Local Threat Intelligence Database for manual blacklists
+        intel_data = load_local_intel()
+        blacklisted_domains = [d.lower() for d in intel_data.get("blacklisted_domains", [])]
+        core_domain = extract_core_domain(url_clean)
+        if (core_domain.lower() in blacklisted_domains) or (hostname and hostname.lower() in blacklisted_domains):
+            analysis["issues"].append("🚨 Local Threat Intelligence: Target domain is manually blacklisted by user.")
+            analysis["status"] = "Danger"
             
         # 1. Insecure Protocol Check
         if url_clean.startswith("http://"):
@@ -553,8 +564,22 @@ def audit_email_headers(display_name, email_address, reply_to_address=None):
         "issues": []
     }
     
-    # Extract core domain using TLD-aware logic
+    # Check Local Blacklists first
+    intel_data = load_local_intel()
+    sender_lower = email_address.strip().lower()
     core_domain = extract_core_domain(email_address)
+    
+    local_blacklist = False
+    if sender_lower in [e.lower() for e in intel_data.get("blacklisted_emails", [])]:
+        local_blacklist = True
+        audit_results["issues"].append(f"🚨 Local Threat Intelligence: Sender email address '{email_address}' is manually blacklisted.")
+    if core_domain.lower() in [d.lower() for d in intel_data.get("blacklisted_domains", [])]:
+        local_blacklist = True
+        audit_results["issues"].append(f"🚨 Local Threat Intelligence: Sender domain '{core_domain}' is manually blacklisted.")
+        
+    if local_blacklist:
+        audit_results["status"] = "Danger"
+        
     # Extract Second-Level Domain name (excluding extension like .com)
     domain_sld = core_domain.split('.')[0] if '.' in core_domain else core_domain
     
@@ -619,6 +644,144 @@ def audit_email_headers(display_name, email_address, reply_to_address=None):
                 
     return audit_results
 
+# Local Threat Intelligence and Continuous Learning Helper Functions
+INTEL_PATH = os.path.join("models", "local_intel.json")
+FEEDBACK_CSV_PATH = os.path.join("dataset", "feedback_data.csv")
+
+def load_local_intel():
+    if os.path.exists(INTEL_PATH):
+        try:
+            with open(INTEL_PATH, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {
+        "blacklisted_domains": [],
+        "blacklisted_emails": [],
+        "whitelisted_domains": []
+    }
+
+def save_local_intel(intel_data):
+    try:
+        os.makedirs(os.path.dirname(INTEL_PATH), exist_ok=True)
+        with open(INTEL_PATH, "w") as f:
+            json.dump(intel_data, f, indent=2)
+    except Exception as e:
+        print(f"Error saving local intel database: {e}")
+
+def submit_local_feedback(text, sender_name, sender_email, reply_to, user_label):
+    text = text.strip()
+    sender_name = sender_name or ""
+    sender_email = sender_email or ""
+    reply_to = reply_to or ""
+    
+    # 1. Append correction to feedback CSV
+    file_exists = os.path.exists(FEEDBACK_CSV_PATH)
+    try:
+        with open(FEEDBACK_CSV_PATH, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            if not file_exists or os.path.getsize(FEEDBACK_CSV_PATH) == 0:
+                writer.writerow(["text", "sender_name", "sender_email", "reply_to", "label"])
+            writer.writerow([text, sender_name, sender_email, reply_to, user_label])
+    except Exception as e:
+        print(f"Error appending feedback CSV: {e}")
+        
+    # 2. Update local_intel.json immediately if labeled as phishing
+    intel_updated = False
+    if user_label == 1:
+        intel_data = load_local_intel()
+        
+        # Add email
+        if sender_email.strip():
+            email_clean = sender_email.strip().lower()
+            if email_clean not in [e.lower() for e in intel_data["blacklisted_emails"]]:
+                intel_data["blacklisted_emails"].append(email_clean)
+                intel_updated = True
+                
+            # Add domain
+            domain_core = extract_core_domain(sender_email)
+            if domain_core and domain_core not in ["gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "aol.com", "icloud.com"]:
+                if domain_core not in [d.lower() for d in intel_data["blacklisted_domains"]]:
+                    intel_data["blacklisted_domains"].append(domain_core)
+                    intel_updated = True
+                    
+        # Extract link domains in text and blacklist them
+        url_pattern = r'https?://\S+|www\.\S+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}(?:/\S*)?'
+        raw_urls = re.findall(url_pattern, text)
+        for url in raw_urls:
+            url_clean = url.strip("[]()\"' ,.;:-")
+            if "." in url_clean and len(url_clean) > 4:
+                domain_core = extract_core_domain(url_clean)
+                if domain_core and domain_core not in ["gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "aol.com", "icloud.com"]:
+                    if domain_core not in [d.lower() for d in intel_data["blacklisted_domains"]]:
+                        intel_data["blacklisted_domains"].append(domain_core)
+                        intel_updated = True
+                        
+        if intel_updated:
+            save_local_intel(intel_data)
+            
+    # 3. Trigger asynchronous background model retraining
+    t = threading.Thread(target=retrain_models_task)
+    t.start()
+
+def retrain_models_task():
+    print("Background Job (Streamlit): Initiating PhishGuard AI retraining...")
+    try:
+        import pandas as pd
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        from sklearn.svm import LinearSVC
+        
+        baseline_path = os.path.join("dataset", "enron_spam_data.csv")
+        if not os.path.exists(baseline_path):
+            print("Retraining aborting: Base Enron file dataset/enron_spam_data.csv is missing.")
+            return
+            
+        df_base = pd.read_csv(baseline_path)
+        df_base['text'] = df_base['Subject'].fillna('') + ' ' + df_base['Message'].fillna('')
+        df_base = df_base[['text', 'Spam/Ham']].dropna()
+        df_base['label'] = df_base['Spam/Ham'].map({'ham': 0, 'spam': 1})
+        df_base = df_base[['text', 'label']]
+        
+        df_feedback = None
+        if os.path.exists(FEEDBACK_CSV_PATH) and os.path.getsize(FEEDBACK_CSV_PATH) > 0:
+            try:
+                df_feedback = pd.read_csv(FEEDBACK_CSV_PATH)
+                df_feedback = df_feedback[['text', 'label']].dropna()
+                df_feedback['label'] = df_feedback['label'].astype(int)
+            except Exception as e:
+                print(f"Feedback CSV reading advisory: {e}")
+                
+        if df_feedback is not None and len(df_feedback) > 0:
+            df_combined = pd.concat([df_base, df_feedback], ignore_index=True)
+        else:
+            df_combined = df_base
+            
+        df_combined = df_combined.drop_duplicates().reset_index(drop=True)
+        df_combined['cleaned_text'] = df_combined['text'].apply(preprocess_text)
+        
+        X = df_combined['cleaned_text']
+        y = df_combined['label']
+        
+        new_vectorizer = TfidfVectorizer(ngram_range=(1, 2), min_df=3, sublinear_tf=True)
+        X_tfidf = new_vectorizer.fit_transform(X)
+        
+        new_model = LinearSVC(C=1.0, random_state=42)
+        new_model.fit(X_tfidf, y)
+        
+        model_path = os.path.join("models", "best_model.pkl")
+        vectorizer_path = os.path.join("models", "tfidf_vectorizer.pkl")
+        
+        with open(model_path, 'wb') as f:
+            pickle.dump(new_model, f)
+        with open(vectorizer_path, 'wb') as f:
+            pickle.dump(new_vectorizer, f)
+            
+        # Clear Streamlit's cache
+        load_models.clear()
+        print("Background Job (Streamlit): Model retraining complete, cache cleared!")
+    except Exception as e:
+        print(f"Background Job Error: Streamlit retraining failed: {e}")
+
 # Load Models
 @st.cache_resource
 def load_models():
@@ -657,7 +820,8 @@ url_model, url_vectorizer = load_url_models()
 def load_bert_model():
     if HAS_BERT:
         try:
-            return pipeline("text-classification", model="mrm8488/bert-tiny-finetuned-sms-spam-detection")
+            device = 0 if torch.cuda.is_available() else -1
+            return pipeline("text-classification", model="mrm8488/bert-tiny-finetuned-sms-spam-detection", device=device)
         except Exception:
             return None
     return None
@@ -684,6 +848,34 @@ st.sidebar.markdown("""
 5. NLTK Stopwords filtering
 6. WordNet Lemmatization
 """)
+
+# Sidebar Admin Controls (Adaptive Continuous Learning)
+st.sidebar.markdown("---")
+st.sidebar.markdown("### ⚙️ System Administration")
+
+# Feedback counts
+feedback_count = 0
+feedback_path = os.path.join("dataset", "feedback_data.csv")
+if os.path.exists(feedback_path) and os.path.getsize(feedback_path) > 0:
+    try:
+        with open(feedback_path, "r", encoding="utf-8") as f:
+            feedback_count = max(0, sum(1 for line in f) - 1)
+    except Exception:
+        pass
+
+st.sidebar.write(f"📁 Feedback Samples: `{feedback_count}`")
+
+# Blacklisted domains list
+intel_data = load_local_intel()
+blacklisted_domains = intel_data.get("blacklisted_domains", [])
+st.sidebar.write(f"🚫 Blacklisted Domains: `{len(blacklisted_domains)}`")
+
+if st.sidebar.button("🔄 Force Retrain Models", key="sidebar_retrain_btn"):
+    with st.spinner("Retraining model in background..."):
+        import threading
+        t = threading.Thread(target=retrain_models_task)
+        t.start()
+        st.sidebar.success("Retraining started asynchronously!")
 
 st.sidebar.markdown("---")
 
@@ -907,6 +1099,32 @@ with tab3:
                 header_audit = None
                 if sender_email.strip():
                     header_audit = audit_email_headers(sender_name, sender_email, reply_to_email)
+                
+                # Check for Local Blacklist matches
+                intel_data = load_local_intel()
+                sender_domain = extract_core_domain(sender_email) if sender_email else ""
+                local_blacklist_triggered = False
+                blacklist_reasons = []
+                
+                if sender_email.strip():
+                    email_lower = sender_email.strip().lower()
+                    if email_lower in [e.lower() for e in intel_data.get("blacklisted_emails", [])]:
+                        local_blacklist_triggered = True
+                        blacklist_reasons.append(f"🚨 Local Threat Intelligence: Sender email address '{sender_email}' is manually blacklisted.")
+                    if sender_domain.strip():
+                        domain_lower = sender_domain.strip().lower()
+                        if domain_lower in [d.lower() for d in intel_data.get("blacklisted_domains", [])]:
+                            local_blacklist_triggered = True
+                            blacklist_reasons.append(f"🚨 Local Threat Intelligence: Sender domain '{sender_domain}' is manually blacklisted.")
+                
+                if local_blacklist_triggered:
+                    if header_audit is None:
+                        header_audit = {"status": "Danger", "issues": []}
+                    header_audit["status"] = "Danger"
+                    for r in blacklist_reasons:
+                        if r not in header_audit["issues"]:
+                            header_audit["issues"].append(r)
+                
                 # -----------------------------------------------------
                 # PART 1: Run SVM (Traditional ML) Pipeline
                 # -----------------------------------------------------
@@ -981,23 +1199,54 @@ with tab3:
                                 prob_bert = max(prob_bert, 0.95)
 
                 # -----------------------------------------------------
+                # PART 2.5: Run Hyperlink Security Audit (Moved up for verdict)
+                # -----------------------------------------------------
+                with st.spinner("Analyzing email hyperlinks..."):
+                    url_audit_results = scan_urls_in_text(email_text)
+
+                # -----------------------------------------------------
                 # PART 3: Consensus Verdict Banner
                 # -----------------------------------------------------
                 st.markdown("### 🛡️ Unified Safety Verdict")
-                if HAS_BERT and bert_pipeline is not None:
-                    # Consensus between SVM and BERT
+                
+                # Check for threats across all inputs
+                has_phishing_verdict = False
+                has_suspicious_verdict = False
+                
+                if local_blacklist_triggered:
+                    has_phishing_verdict = True
+                elif HAS_BERT and bert_pipeline is not None:
                     if pred_svm == 1 and pred_bert == 1:
-                        st.error("🚨 **CRITICAL VERDICT: HIGH CONFIDENCE PHISHING ALERT** (Both traditional ML and deep learning models flagged this email as spam/phishing)")
+                        has_phishing_verdict = True
                     elif pred_svm == 1 or pred_bert == 1:
-                        st.warning("⚠️ **WARNING VERDICT: SUSPICIOUS ACTIVITY** (One of the models flagged this email. Caution is strongly advised)")
-                    else:
-                        st.success("✅ **SAFE VERDICT: LEGITIMATE EMAIL** (Both models verified this email as safe and legitimate)")
+                        has_suspicious_verdict = True
                 else:
-                    # SVM only verdict
                     if pred_svm == 1:
-                        st.error("🚨 **VERDICT: PHISHING ALERT DETECTED** (The SVM Classifier flagged this email as spam/phishing)")
+                        has_phishing_verdict = True
+                        
+                # Check headers status
+                if header_audit and header_audit["status"] == "Danger":
+                    has_phishing_verdict = True
+                elif header_audit and header_audit["status"] == "Suspicious":
+                    has_suspicious_verdict = True
+                    
+                # Check URLs status
+                if url_audit_results:
+                    if any(audit["status"] == "Danger" for audit in url_audit_results):
+                        has_phishing_verdict = True
+                    elif any(audit["status"] == "Suspicious" for audit in url_audit_results):
+                        has_suspicious_verdict = True
+
+                # Render verdict banner
+                if has_phishing_verdict:
+                    if local_blacklist_triggered:
+                        st.error("🚨 **CRITICAL VERDICT: PHISHING ALERT (Local Threat Intelligence Blacklist Match)**")
                     else:
-                        st.success("✅ **VERDICT: LEGITIMATE EMAIL** (The SVM Classifier verified this email as safe)")
+                        st.error("🚨 **CRITICAL VERDICT: HIGH CONFIDENCE PHISHING ALERT** (ML models, headers, or links flagged phishing)")
+                elif has_suspicious_verdict:
+                    st.warning("⚠️ **WARNING VERDICT: SUSPICIOUS ACTIVITY** (Model/heuristic mismatch detected. Caution advised)")
+                else:
+                    st.success("✅ **SAFE VERDICT: LEGITIMATE EMAIL** (Both models and structural checks verified safe)")
 
                 # -----------------------------------------------------
                 # PART 3.5: Sender Metadata Header Check Display
@@ -1022,7 +1271,6 @@ with tab3:
                 
                 with col_l:
                     st.markdown("#### 📊 Traditional ML (LinearSVC)")
-                    # Cleaned tokens view
                     with st.expander("🔍 See Preprocessed Text"):
                         st.write(f"**Cleaned Tokens:** `{cleaned}`")
                         
@@ -1064,9 +1312,6 @@ with tab3:
                 st.markdown("---")
                 st.markdown("### 🔗 Hyperlink Security Audit Report")
                 
-                with st.spinner("Analyzing email hyperlinks..."):
-                    url_audit_results = scan_urls_in_text(email_text)
-                    
                 if not url_audit_results:
                     st.success("✅ **No hyperlinks detected** in the email body. (Low risk of direct credential harvesting/redirects)")
                 else:
@@ -1075,7 +1320,6 @@ with tab3:
                     for idx, audit in enumerate(url_audit_results, 1):
                         st.markdown(f"**Link #{idx}:** `{audit['url']}`")
                         
-                        # Display status as card
                         if audit["status"] == "Danger":
                             st.markdown(f"<div style='background-color:#fee2e2; border-left: 5px solid #dc2626; padding:0.75rem; border-radius:4px; color:#991b1b; font-size:0.9rem; font-weight:bold; margin-bottom:0.5rem;'>🚨 DANGER - MALICIOUS LINK PATTERN DETECTED</div>", unsafe_allow_html=True)
                         elif audit["status"] == "Suspicious":
@@ -1083,13 +1327,29 @@ with tab3:
                         else:
                             st.markdown(f"<div style='background-color:#dcfce7; border-left: 5px solid #16a34a; padding:0.75rem; border-radius:4px; color:#166534; font-size:0.9rem; font-weight:bold; margin-bottom:0.5rem;'>✅ VERIFIED SAFE DOMAIN STRUCTURE</div>", unsafe_allow_html=True)
                             
-                        # Show issues list
                         if audit["issues"]:
                             for issue in audit["issues"]:
                                 st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&bull;&nbsp;&nbsp;{issue}")
                         else:
                             st.markdown("&nbsp;&nbsp;&nbsp;&nbsp;&bull;&nbsp;&nbsp;No brand spoofing, insecure protocols, or obfuscation indicators identified.")
                         st.markdown("<br>", unsafe_allow_html=True)
+                
+                # -----------------------------------------------------
+                # PART 5.5: Continuous Learning Feedback Loop
+                # -----------------------------------------------------
+                st.markdown("---")
+                st.markdown("### 🔄 Help PhishGuard AI Learn")
+                st.markdown("Is the classification verdict incorrect? Submit feedback to retrain the machine learning model and update threat intelligence database instantly.")
+                
+                col_f1, col_f2 = st.columns(2)
+                with col_f1:
+                    if st.button("🚨 Flag as Phishing (Spam)", key="feedback_phish_btn", use_container_width=True):
+                        submit_local_feedback(email_text, sender_name, sender_email, reply_to_email, 1)
+                        st.success("Feedback registered! Sender and link domains blacklisted instantly. Model retraining started in the background.")
+                with col_f2:
+                    if st.button("✅ Mark as Safe (Ham)", key="feedback_safe_btn", use_container_width=True):
+                        submit_local_feedback(email_text, sender_name, sender_email, reply_to_email, 0)
+                        st.success("Feedback registered! Model retraining started in the background.")
                         
                 # -----------------------------------------------------
                 # PART 6: Forensic PDF Report Download
@@ -1098,13 +1358,11 @@ with tab3:
                     st.markdown("---")
                     st.markdown("### 📄 Export Forensic Audit Report")
                     
-                    # Package SVM results
                     svm_results = {
                         "prediction": int(pred_svm),
                         "prob": float(prob_svm)
                     }
                     
-                    # Package BERT results
                     bert_results = {}
                     if HAS_BERT and bert_pipeline is not None:
                         bert_results = {
@@ -1112,7 +1370,6 @@ with tab3:
                             "prob": float(prob_bert)
                         }
                         
-                    # Generate PDF data
                     try:
                         pdf_data = generate_pdf_report(email_text, svm_results, bert_results, url_audit_results, header_audit)
                         if pdf_data:
@@ -1125,5 +1382,6 @@ with tab3:
                             )
                     except Exception as e:
                         st.error(f"Error generating PDF Report: {e}")
+
                         
 st.markdown("---")

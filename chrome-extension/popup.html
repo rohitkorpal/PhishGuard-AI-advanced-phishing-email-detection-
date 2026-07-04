@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PhishGuard AI</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo-area">
+        <span class="shield-icon">🛡️</span>
+        <div class="logo-text">
+          <h1>PhishGuard <span class="badge-ai">AI</span></h1>
+          <p>Advanced Phishing Detector</p>
+        </div>
+      </div>
+      <div class="status-indicator" id="api-status">
+        <span class="pulse-dot"></span> API Offline
+      </div>
+    </header>
+
+    <!-- Main Tabs -->
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="scan-tab">Scan Email</button>
+      <button class="tab-btn" data-tab="url-tab">Quick Link Scan</button>
+    </div>
+
+    <!-- Scan Tab Content -->
+    <div id="scan-tab" class="tab-content active">
+      <!-- Action Panel -->
+      <div class="action-card">
+        <button id="extract-btn" class="primary-btn pulse-glow">
+          <span class="btn-icon">⚡</span> Extract & Scan Current Email
+        </button>
+        <p class="helper-text">Supports Gmail & Microsoft Outlook web interfaces.</p>
+      </div>
+
+      <div class="divider"><span>OR ENTER MANUALLY</span></div>
+
+      <!-- Manual Input Card -->
+      <div class="glass-card">
+        <div class="form-group">
+          <label for="email-text">Email Message Body</label>
+          <textarea id="email-text" placeholder="Paste full email text or signature content here..."></textarea>
+        </div>
+
+        <button class="accordion-toggle" id="headers-toggle">
+          <span>📧 Advanced Header Headers (Optional)</span>
+          <span class="chevron">▼</span>
+        </button>
+        
+        <div class="accordion-content" id="headers-panel">
+          <div class="form-group">
+            <label for="sender-name">Sender Display Name</label>
+            <input type="text" id="sender-name" placeholder="e.g., PayPal Security Alert">
+          </div>
+          <div class="form-group">
+            <label for="sender-email">From Email Address</label>
+            <input type="email" id="sender-email" placeholder="e.g., alert@paypal.com">
+          </div>
+          <div class="form-group">
+            <label for="reply-to-email">Reply-To Email</label>
+            <input type="email" id="reply-to-email" placeholder="e.g., reply@attacker-domain.xyz">
+          </div>
+        </div>
+
+        <button id="analyze-btn" class="secondary-btn">Analyze Content</button>
+      </div>
+    </div>
+
+    <!-- URL Tab Content -->
+    <div id="url-tab" class="tab-content">
+      <div class="glass-card">
+        <div class="form-group">
+          <label for="quick-url">Target URL to Inspect</label>
+          <input type="text" id="quick-url" placeholder="e.g., http://paypal-verify-account.net">
+        </div>
+        <button id="analyze-url-btn" class="primary-btn">Inspect Hyperlink</button>
+      </div>
+    </div>
+
+    <!-- Loader -->
+    <div class="loader-overlay" id="loader">
+      <div class="spinner"></div>
+      <p>Running NLP Classifiers & Security Audits...</p>
+    </div>
+
+    <!-- Results Area -->
+    <div class="results-container" id="results-area">
+      <!-- Verdict Glow Banner -->
+      <div class="verdict-banner" id="verdict-banner">
+        <span class="verdict-icon" id="verdict-icon">🛡️</span>
+        <div class="verdict-details">
+          <h2 id="verdict-title">Analysis Verdict</h2>
+          <p id="verdict-desc">Consensus result will be loaded here.</p>
+        </div>
+      </div>
+
+      <!-- Detail Cards Accordion/Grid -->
+      <div class="result-details-grid">
+        <!-- Model Scores -->
+        <div class="glass-card result-section">
+          <h3>📊 NLP Model Probabilities</h3>
+          <div class="score-row">
+            <div class="score-label">
+              <span>Traditional ML (LinearSVC)</span>
+              <span id="svm-score-val">0%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill" id="svm-bar" style="width: 0%"></div>
+            </div>
+          </div>
+          <div class="score-row" id="bert-score-row">
+            <div class="score-label">
+              <span>Deep Learning (BERT)</span>
+              <span id="bert-score-val">0%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill" id="bert-bar" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sender Header Integrity Check -->
+        <div class="glass-card result-section" id="header-results-card" style="display:none;">
+          <h3>📧 Sender Identity Audit</h3>
+          <div class="status-pill" id="header-status-pill">Verified</div>
+          <ul class="issues-list" id="header-issues"></ul>
+        </div>
+
+        <!-- Hyperlinks Security Audit -->
+        <div class="glass-card result-section" id="url-results-card" style="display:none;">
+          <h3>🔗 Hyperlink Security Audit</h3>
+          <div id="url-audits-list"></div>
+        </div>
+      </div>
+
+      <!-- Continuous Learning Feedback Panel -->
+      <div class="glass-card result-section" id="feedback-panel" style="margin-top:16px;">
+        <h3>🔄 Help PhishGuard Learn</h3>
+        <p class="helper-text" style="margin-bottom:12px; font-size:10.5px;">Is this analysis verdict incorrect? Flag it to retrain models and update the threat database instantly.</p>
+        <div style="display:flex; gap:8px;">
+          <button id="flag-phish-btn" class="secondary-btn" style="flex:1; border-color:var(--color-danger); color:#ff6b6b; background:rgba(239,68,68,0.08); font-weight:600;">🚨 Flag Phishing</button>
+          <button id="flag-safe-btn" class="secondary-btn" style="flex:1; border-color:var(--color-safe); color:#3ef0b7; background:rgba(16,185,129,0.08); font-weight:600;">✅ Mark Safe</button>
+        </div>
+        <p id="feedback-status" class="helper-text" style="display:none; text-align:center; color:var(--color-safe); font-weight:600; margin-top:8px;"></p>
+      </div>
+
+      <button id="reset-btn" class="outline-btn">Scan Another Item</button>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

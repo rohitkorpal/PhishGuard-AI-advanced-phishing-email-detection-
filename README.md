@@ -132,3 +132,51 @@ For link-level checking, the app loads an **XGBoost Classifier** trained on **64
 | **Defacement** | 98% | 97% | 97% | 8,483 |
 | **Malware** | 98% | 86% | 91% | 1,341 |
 | **Overall Accuracy** | | | **95.41%** | 49,998 |
+
+---
+
+## 🔌 Chrome Extension Integration
+
+PhishGuard AI includes a Google Chrome extension (Manifest V3) that allows real-time security auditing and NLP phishing classification directly inside your browser. It supports automated email body extraction and metadata scraping from webmail providers (Gmail and Microsoft Outlook) and can also run quick manual audits on link targets.
+
+### 1. Architecture Overview
+Because Chrome Extensions run in a JavaScript sandbox, the Python machine learning models (LinearSVC, XGBoost, BERT) cannot execute locally in the extension. Instead, the extension acts as a client that queries a local **FastAPI REST API Server** (`api.py`). The API runs the pre-processing pipelines, feeds inputs into the serialized model classifiers, conducts header integrity checks, and returns a unified consensus verdict.
+
+```
+[ Active Webmail Page ]
+      │ (Inject DOM Scraper Script)
+      ▼
+[ PhishGuard Extension ] ───(HTTP POST)───► [ FastAPI Backend (api.py) ]
+                                                    │ (Run ML Classifiers & Rules)
+                                                    ▼
+                                            [ best_model.pkl (SVM) ]
+                                            [ url_classifier.pkl (XGBoost) ]
+                                            [ BERT Pipeline (Hugging Face) ]
+```
+
+### 2. How to Run the API Backend
+Before loading the Chrome extension, start the local API server:
+
+1. Activate your virtual environment and ensure you have `fastapi` and `uvicorn` installed:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. Start the FastAPI application:
+   ```bash
+   python api.py
+   ```
+   The API will start locally at `http://127.0.0.1:8000`. You can verify it is running by visiting the root page in your browser.
+
+### 3. How to Load the Chrome Extension
+1. Open Google Chrome and navigate to the Extensions page: `chrome://extensions/`.
+2. Toggle the **Developer mode** switch in the top-right corner to **ON**.
+3. Click the **Load unpacked** button in the top-left corner.
+4. Select the `chrome-extension` directory inside this repository.
+5. The **PhishGuard AI** extension badge will appear in your Chrome toolbar. Click to open the popup.
+
+### 4. Features & Usage
+*   **API Status**: The extension automatically polls the FastAPI server. The status indicator at the top will turn green (`API Online`) when the backend is active.
+*   **⚡ Extract & Scan Current Email**: Open any active email thread inside Gmail or Microsoft Outlook Web, open the extension, and click this button. The extension will scrape the sender name, email address, reply-to header, and full message body, send them to the API, and display a comprehensive security verdict.
+*   **Manual Scan**: Paste any text block manually, customize sender headers, and click **Analyze Content**.
+*   **Quick Link Scan**: Switch to the **Quick Link Scan** tab, paste a URL, and click **Inspect Hyperlink** to get an instant heuristic and XGBoost classification rating for that link.
+

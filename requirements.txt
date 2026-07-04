@@ -19,3 +19,6 @@ fpdf2>=2.7.0
 xgboost>=1.7.0
 scipy>=1.10.0
 
+# API Backend and Extension Support
+fastapi>=0.95.0
+uvicorn>=0.20.0
