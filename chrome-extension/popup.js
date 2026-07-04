@@ -224,7 +224,8 @@ document.addEventListener('DOMContentLoaded', () => {
             text: data.body || '',
             sender_name: data.senderName || '',
             sender_email: data.senderEmail || '',
-            reply_to: data.replyTo || ''
+            reply_to: data.replyTo || '',
+            mailed_by: data.mailedBy || ''
           });
         } else {
           alert('Could not detect structure elements on this page. If you are reading an email, try selecting the email text and pasting it manually.');
@@ -452,7 +453,8 @@ function extractEmailContents() {
     body: '',
     senderName: '',
     senderEmail: '',
-    replyTo: ''
+    replyTo: '',
+    mailedBy: ''
   };
 
   const hostname = window.location.hostname;
@@ -468,46 +470,63 @@ function extractEmailContents() {
       result.senderEmail = senderElement.getAttribute('email') || '';
     }
     
-    // 2. Get Reply-To Info (Class-independent double-failsafe)
+    // 2. Get Reply-To and Mailed-By Info (Class-independent double-failsafe)
     // Failsafe A: Scan all table rows in the document for key-value labels
     const allRows = document.querySelectorAll('tr');
     allRows.forEach(row => {
-      const text = row.textContent.toLowerCase();
-      if (text.includes('reply-to:') || text.includes('reply-to')) {
-        const cells = row.querySelectorAll('td');
-        if (cells.length > 1) {
-          if (cells[0].textContent.toLowerCase().includes('reply-to') || cells[0].textContent.toLowerCase().includes('reply_to')) {
-            result.replyTo = cells[1].textContent.trim();
-          }
+      const cells = row.querySelectorAll('td');
+      if (cells.length > 1) {
+        const label = cells[0].textContent.toLowerCase();
+        const value = cells[1].textContent.trim();
+        
+        if (label.includes('reply-to') || label.includes('reply_to')) {
+          result.replyTo = value;
+        } else if (label.includes('mailed-by') || label.includes('mailed_by')) {
+          result.mailedBy = value;
         }
       }
     });
 
-    // Failsafe B: If Failsafe A missed it, scan for any label element containing 'reply-to:' text
-    if (!result.replyTo) {
-      const allLabels = document.querySelectorAll('td, span, div, b');
-      for (const el of allLabels) {
-        const txt = el.textContent.trim().toLowerCase();
-        if (txt === 'reply-to:' || txt === 'reply-to') {
-          const parent = el.parentElement;
-          if (parent) {
-            const siblings = parent.querySelectorAll('td, span, div');
-            if (siblings.length > 1) {
-              result.replyTo = siblings[siblings.length - 1].textContent.trim();
-              break;
-            }
+    // Failsafe B: Scan for any label elements containing 'reply-to:' or 'mailed-by:' text
+    const allLabels = document.querySelectorAll('td, span, div, b');
+    for (const el of allLabels) {
+      const txt = el.textContent.trim().toLowerCase();
+      const parent = el.parentElement;
+      if (parent) {
+        const siblings = parent.querySelectorAll('td, span, div');
+        if (siblings.length > 1) {
+          if (!result.replyTo && (txt === 'reply-to:' || txt === 'reply-to')) {
+            result.replyTo = siblings[siblings.length - 1].textContent.trim();
+          } else if (!result.mailedBy && (txt === 'mailed-by:' || txt === 'mailed-by')) {
+            result.mailedBy = siblings[siblings.length - 1].textContent.trim();
           }
         }
       }
     }
     
-    // 3. Get Body Text
+    // 3. Get Body Text and Scan Hidden Embedded Links
     // Gmail stores email content in elements with role='gridcell' or class 'a3s'
     const bodyElements = document.querySelectorAll('.a3s');
     if (bodyElements && bodyElements.length > 0) {
       // Grab the last email body (in case of threads)
       const activeBody = bodyElements[bodyElements.length - 1];
       result.body = activeBody.innerText || activeBody.textContent || '';
+      
+      // Extract hidden embedded hyperlinks (href attributes of <a> tags)
+      const anchorTags = activeBody.querySelectorAll('a[href]');
+      const embeddedHrefs = [];
+      anchorTags.forEach(a => {
+        const href = a.getAttribute('href');
+        if (href && href.startsWith('http')) {
+          embeddedHrefs.push(href);
+        }
+      });
+      
+      // De-duplicate embedded links
+      const uniqueHrefs = [...new Set(embeddedHrefs)];
+      if (uniqueHrefs.length > 0) {
+        result.body += '\n\n[Embedded Links]\n' + uniqueHrefs.join('\n');
+      }
     }
     
   } else if (hostname.includes('outlook.live.com') || hostname.includes('outlook.office.com') || hostname.includes('outlook.office365.com')) {
@@ -527,11 +546,25 @@ function extractEmailContents() {
       }
     }
     
-    // 2. Body Text
+    // 2. Body Text & Scan Hidden Embedded Links
     // Outlook uses classes like 'x_MsoNormal' or div[role="document"] inside message panes
     const bodyElement = document.querySelector('[role="document"], .x_MsoNormal, .ReadingPaneBody');
     if (bodyElement) {
       result.body = bodyElement.innerText || bodyElement.textContent || '';
+      
+      // Extract hidden embedded hyperlinks
+      const anchorTags = bodyElement.querySelectorAll('a[href]');
+      const embeddedHrefs = [];
+      anchorTags.forEach(a => {
+        const href = a.getAttribute('href');
+        if (href && href.startsWith('http')) {
+          embeddedHrefs.push(href);
+        }
+      });
+      const uniqueHrefs = [...new Set(embeddedHrefs)];
+      if (uniqueHrefs.length > 0) {
+        result.body += '\n\n[Embedded Links]\n' + uniqueHrefs.join('\n');
+      }
     }
   }
   
@@ -561,6 +594,7 @@ function extractEmailContents() {
 
   result.senderEmail = cleanEmail(result.senderEmail);
   result.replyTo = cleanEmail(result.replyTo);
+  result.mailedBy = cleanEmail(result.mailedBy);
   
   return result;
 }

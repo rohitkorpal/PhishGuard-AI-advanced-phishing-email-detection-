@@ -247,7 +247,34 @@ def is_gibberish_domain(sld):
         return True
     return False
 
-def audit_email_headers(display_name: str, email_address: str, reply_to_address: Optional[str] = None):
+def check_sender_name_address_match(display_name: str, email_address: str) -> bool:
+    display_name = display_name.strip().lower()
+    email_address = email_address.strip().lower()
+    
+    if not display_name or "@" not in email_address:
+        return True
+        
+    parts = email_address.split("@")
+    username, domain = parts[0], parts[1]
+    
+    # Exclude common free webmails where personal names are often disjoint from the address
+    free_webmails = {"gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "aol.com", "icloud.com", "mail.com"}
+    if domain in free_webmails:
+        return True
+        
+    # Split display name into alphabetical words of length >= 3
+    words = re.findall(r'[a-zA-Z]{3,}', display_name)
+    if not words:
+        return True
+        
+    # Check if at least one word from display name matches username or domain
+    for word in words:
+        if word in username or word in domain:
+            return True
+            
+    return False
+
+def audit_email_headers(display_name: str, email_address: str, reply_to_address: Optional[str] = None, mailed_by: Optional[str] = None):
     if not email_address.strip():
         return None
         
@@ -301,6 +328,12 @@ def audit_email_headers(display_name: str, email_address: str, reply_to_address:
     if is_gibberish_domain(domain_sld):
         audit_results["issues"].append(f"🚨 Suspicious Sender Domain: The domain '{core_domain}' contains highly randomized character patterns (possible DGA spoofing).")
         audit_results["status"] = "Danger"
+        
+    # Sender Identity Mismatch Check (Display Name vs Address mismatch)
+    if display_name and not check_sender_name_address_match(display_name, email_address):
+        audit_results["issues"].append(f"⚠️ Sender Identity Mismatch: Display name '{display_name}' has no lexical correlation or visual overlap with the sending email address '{email_address}'. This is a common spoofing tactic.")
+        if audit_results["status"] == "Safe":
+            audit_results["status"] = "Suspicious"
         
     # Typosquatting check
     sld_normalized = clean_homoglyphs(domain_sld)
@@ -366,6 +399,15 @@ def audit_email_headers(display_name: str, email_address: str, reply_to_address:
                 if reply_core_domain != core_domain:
                     audit_results["issues"].append(f"🚨 Reply-To Header Mismatch: Reply-To address '{reply_to_clean}' points to a different core domain than the From address '{email_address}'. Replies will be routed to an external domain.")
                     audit_results["status"] = "Danger"
+                
+    # Mailed-By Domain Alignment (via) check
+    if mailed_by and mailed_by.strip():
+        mailed_by_clean = mailed_by.strip().lower()
+        mailed_core = extract_core_domain(mailed_by_clean)
+        if mailed_core != core_domain:
+            audit_results["issues"].append(f"⚠️ Sender Domain Alignment Warning: Email sent via '{mailed_by_clean}' which does not match the From domain '{core_domain}' (displayed as 'via' in Gmail). This indicates mailing relay or possible spoofing.")
+            if audit_results["status"] == "Safe":
+                audit_results["status"] = "Suspicious"
                 
     return audit_results
 
@@ -554,6 +596,7 @@ class ScanRequest(BaseModel):
     sender_name: Optional[str] = Field("", description="The sender display name")
     sender_email: Optional[str] = Field("", description="The sender actual email address")
     reply_to: Optional[str] = Field("", description="The reply-to header address")
+    mailed_by: Optional[str] = Field("", description="The mailed-by/relay domain (via)")
 
 class UrlRequest(BaseModel):
     url: str = Field(..., description="A single URL to inspect")
@@ -607,11 +650,12 @@ def scan_email(req: ScanRequest):
     sender_name = req.sender_name or ""
     sender_email = req.sender_email or ""
     reply_to = req.reply_to or ""
+    mailed_by = req.mailed_by or ""
     
     # 0. Audit Headers if provided
     header_audit = None
     if sender_email.strip():
-        header_audit = audit_email_headers(sender_name, sender_email, reply_to)
+        header_audit = audit_email_headers(sender_name, sender_email, reply_to, mailed_by)
         
     # Local Threat Intel Check (Zero-Day Blacklisting)
     intel_data = load_local_intel()

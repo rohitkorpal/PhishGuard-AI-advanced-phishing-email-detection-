@@ -536,7 +536,34 @@ def is_gibberish_domain(sld):
         return True
     return False
 
-def audit_email_headers(display_name, email_address, reply_to_address=None):
+def check_sender_name_address_match(display_name, email_address):
+    display_name = display_name.strip().lower()
+    email_address = email_address.strip().lower()
+    
+    if not display_name or "@" not in email_address:
+        return True
+        
+    parts = email_address.split("@")
+    username, domain = parts[0], parts[1]
+    
+    # Exclude common free webmails where personal names are often disjoint from the address
+    free_webmails = {"gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "aol.com", "icloud.com", "mail.com"}
+    if domain in free_webmails:
+        return True
+        
+    # Split display name into alphabetical words of length >= 3
+    words = re.findall(r'[a-zA-Z]{3,}', display_name)
+    if not words:
+        return True
+        
+    # Check if at least one word from display name matches username or domain
+    for word in words:
+        if word in username or word in domain:
+            return True
+            
+    return False
+
+def audit_email_headers(display_name, email_address, reply_to_address=None, mailed_by=None):
     if not email_address.strip():
         return None
         
@@ -604,13 +631,19 @@ def audit_email_headers(display_name, email_address, reply_to_address=None):
     if local_blacklist:
         audit_results["status"] = "Danger"
         
-    # Extract Second-Level Domain name (excluding extension like .com)
+    core_domain = extract_core_domain(email_address)
     domain_sld = core_domain.split('.')[0] if '.' in core_domain else core_domain
     
     # Gibberish/DGA Domain Check
     if is_gibberish_domain(domain_sld):
         audit_results["issues"].append(f"🚨 Suspicious Sender Domain: The domain '{core_domain}' contains highly randomized character patterns (possible DGA spoofing).")
         audit_results["status"] = "Danger"
+        
+    # Sender Identity Mismatch Check (Display Name vs Address mismatch)
+    if display_name and not check_sender_name_address_match(display_name, email_address):
+        audit_results["issues"].append(f"⚠️ Sender Identity Mismatch: Display name '{display_name}' has no lexical correlation or visual overlap with the sending email address '{email_address}'. This is a common spoofing tactic.")
+        if audit_results["status"] == "Safe":
+            audit_results["status"] = "Suspicious"
         
     # Check 1: Brand Spoofing via Fuzzy Matching & Homoglyphs (Typosquatting)
     sld_normalized = clean_homoglyphs(domain_sld)
@@ -677,6 +710,15 @@ def audit_email_headers(display_name, email_address, reply_to_address=None):
                 if reply_core_domain != core_domain:
                     audit_results["issues"].append(f"🚨 Reply-To Header Mismatch: Reply-To address '{reply_to_clean}' points to a different core domain than the From address '{email_address}'. Replies will be routed to an external domain.")
                     audit_results["status"] = "Danger"
+                
+    # Mailed-By Domain Alignment (via) check
+    if mailed_by and mailed_by.strip():
+        mailed_by_clean = mailed_by.strip().lower()
+        mailed_core = extract_core_domain(mailed_by_clean)
+        if mailed_core != core_domain:
+            audit_results["issues"].append(f"⚠️ Sender Domain Alignment Warning: Email sent via '{mailed_by_clean}' which does not match the From domain '{core_domain}' (displayed as 'via' in Gmail). This indicates mailing relay or possible spoofing.")
+            if audit_results["status"] == "Safe":
+                audit_results["status"] = "Suspicious"
                 
     return audit_results
 
@@ -1117,13 +1159,15 @@ with tab3:
         # Collapsible Expander for Sender Header inputs
         with st.expander("📧 Advanced Email Header Audit (Optional)"):
             st.markdown("Use these fields to inspect sender metadata (e.g., Display Name vs. Email Domain mismatch checks).")
-            col_h1, col_h2, col_h3 = st.columns(3)
+            col_h1, col_h2, col_h3, col_h4 = st.columns(4)
             with col_h1:
                 sender_name = st.text_input("Sender Display Name", placeholder="e.g., PayPal Security Alert")
             with col_h2:
                 sender_email = st.text_input("Sender Email Address", placeholder="e.g., alert@paypal.com")
             with col_h3:
                 reply_to_email = st.text_input("Reply-To Email Address", placeholder="e.g., help@secure-billing.xyz")
+            with col_h4:
+                mailed_by_email = st.text_input("Mailed-By Domain (via)", placeholder="e.g., relay-domain.com")
 
         if st.button("Predict / Analyze"):
             if email_text.strip() == "":
@@ -1134,7 +1178,7 @@ with tab3:
                 # -----------------------------------------------------
                 header_audit = None
                 if sender_email.strip():
-                    header_audit = audit_email_headers(sender_name, sender_email, reply_to_email)
+                    header_audit = audit_email_headers(sender_name, sender_email, reply_to_email, mailed_by_email)
                 
                 # Check for Local Blacklist matches
                 intel_data = load_local_intel()
