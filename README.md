@@ -11,7 +11,7 @@ Using the provided dataset `dataset/enron_spam_data.csv` (30,494 unique emails),
 
 ---
 
-## ✨ Core Features of the Web Application
+## ✨ Core Features of the Web Application & Ecosystem
 
 1.  **📊 Dataset Insights (Tab 1)**: Visualizes the class balance (52% Ham / 48% Spam) and frequently used terms via side-by-side comparative wordclouds.
 2.  **📈 Model Stats & Performance Visualizations (Tab 2)**: Displays interactive metric explainers, confusion matrix heatmaps with text interpretation, and a quantitative comparison table of the 5 classifiers.
@@ -22,6 +22,12 @@ Using the provided dataset `dataset/enron_spam_data.csv` (30,494 unique emails),
     *   **📧 Advanced Sender Header Audit**: Evaluates sender display names against actual email domain paths to flag Display Name Spoofing, Free Webmail Corporate Abuse, Homoglyph-Aware Levenshtein Typosquatting (e.g., `g00gle.com` or `rnicrosoft.com`), and Reply-To domain redirect attacks.
     *   **🔗 Hybrid Hyperlink Scanner**: Extracts email hyperlinks and evaluates them via (a) lexical heuristics (HTTP checks, obfuscated shorteners, raw IP hostnames), and (b) a GPU-trained **XGBoost URL Classifier** (trained on 651k URLs).
     *   **📄 Download Forensic Report**: Generates and downloads a formal PDF security audit report containing text verdicts, sender metadata verification logs, and link scan details.
+4.  **🔄 Adaptive Continuous Learning (Feedback Loop)**:
+    *   Allows users (in both Streamlit and the Chrome Extension) to submit verification corrections.
+    *   Corrections are appended to the feedback dataset. When submitted, the system triggers an asynchronous background retraining pipeline that re-fits the TF-IDF feature extractor and updates the SVM classification weights on disk.
+    *   Uses **Zero-Day Local Threat Intelligence** (`models/local_intel.json`) to instantly block blacklisted sender domains and emails on subsequent scans, bypassing background training latency.
+5.  **⚡ CUDA-GPU Acceleration**:
+    *   Automatically detects local GPUs (`torch.cuda.is_available()`) to load the Hugging Face BERT classifier, accelerating deep learning text classification times.
 
 ---
 
@@ -29,12 +35,21 @@ Using the provided dataset `dataset/enron_spam_data.csv` (30,494 unique emails),
 ```text
 ├── dataset/
 │   ├── enron_spam_data.csv    # Primary dataset (Enron Email Dataset)
-│   └── malicious_phish.csv    # Secondary dataset (651k Malicious URLs Dataset)
+│   ├── malicious_phish.csv    # Secondary dataset (651k Malicious URLs Dataset)
+│   └── feedback_data.csv      # Logged user classification corrections
+├── chrome-extension/          # Manifest V3 Google Chrome extension directory
+│   ├── manifest.json          # Configuration metadata and declarations
+│   ├── popup.html             # Sleek glassmorphic popup UI
+│   ├── popup.css              # Cyber-themed styling and micro-animations
+│   ├── popup.js               # Event triggers, API integrations, and extraction
+│   └── content.js             # Webmail page DOM extraction scripts
 ├── requirements.txt           # Project dependencies
-├── app.py                     # Streamlit web application (includes SVM, BERT, URL pipelines)
+├── app.py                     # Streamlit web application dashboard
+├── api.py                     # FastAPI REST API backend (for the Chrome extension)
 ├── predict_bert_demo.py       # Offline demo script to test local BERT pipeline
 ├── README.md                  # Project documentation
 ├── Project_Report.md          # Project report (IEEE Conference Paper style)
+├── LICENSE                    # Proprietary copyright protection notice
 ├── train.py                   # Script to train and compare the 5 ML models
 ├── train_url_model.py         # Script to train the XGBoost URL classifier
 ├── generate_plots.py          # Script to generate Enron evaluation graphs
@@ -43,7 +58,8 @@ Using the provided dataset `dataset/enron_spam_data.csv` (30,494 unique emails),
 │   ├── best_model.pkl         # Serialized best-performing ML model (SVM)
 │   ├── tfidf_vectorizer.pkl   # Serialized TF-IDF Vectorizer
 │   ├── url_classifier.pkl     # Serialized XGBoost URL classifier
-│   └── url_vectorizer.pkl     # Serialized URL char-level TF-IDF Vectorizer
+│   ├── url_vectorizer.pkl     # Serialized URL char-level TF-IDF Vectorizer
+│   └── local_intel.json       # Manually blacklisted emails and domains database
 └── visualizations/            # Generated evaluation graphs
     ├── enron_class_distribution.png
     ├── enron_confusion_matrix.png

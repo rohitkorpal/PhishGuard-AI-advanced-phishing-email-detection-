@@ -160,9 +160,22 @@ graph TD
     G --> H[Deployment in Streamlit UI (SVM + BERT Dual-Engine)]
 ```
 
+### A. Core System Phases
 The system operates in two core phases: **Training Phase** and **Prediction Phase**.
-1. **Training Phase:** Raw text is preprocessed, converted into numerical vectors, split into training/testing sets, modeled using ML classifiers, and evaluated. The best model and vectorizer are then serialized.
-2. **Prediction Phase:** An end-user inputs text into the Streamlit application. The system processes the text simultaneously through two independent detection engines: (a) the traditional TF-IDF + LinearSVC pipeline, and (b) a deep learning transformer (BERT/DistilBERT). The predictions from both models are compared, and a consensus safety verdict (High-Confidence Phishing, Suspicious, or Safe) is determined and displayed alongside side-by-side confidence scores. Concurrently, any hyperlinks detected in the email body are evaluated by a hybrid URL analysis module consisting of: (a) lexical heuristics (e.g., protocol checks, obfuscation service detection, raw IP hosting, subdomain depth), and (b) an XGBoost classification model trained on a 651k URL database to predict URL threat categories (phishing, defacement, malware, or benign). Furthermore, a dedicated Email Header and Metadata Spoofing Auditor is integrated to inspect sender credentials. This auditor checks for Display Name spoofing, domain typosquatting using a homoglyph-aware Levenshtein similarity algorithm, corporate brand domain abuse from free webmail providers (e.g., Gmail, Yahoo), and Reply-To header mismatches where the return path is redirected to a different core domain, flagging potential impersonation and Business Email Compromise (BEC) attempts.
+1) *Training Phase:* Raw text is preprocessed, converted into numerical vectors, split into training/testing sets, modeled using ML classifiers, and evaluated. The best model and vectorizer are then serialized.
+2) *Prediction Phase:* An end-user inputs text into the Streamlit application. The system processes the text simultaneously through two independent detection engines: (a) the traditional TF-IDF + LinearSVC pipeline, and (b) a deep learning transformer (BERT/DistilBERT). The predictions from both models are compared, and a consensus safety verdict (High-Confidence Phishing, Suspicious, or Safe) is determined and displayed alongside side-by-side confidence scores. Concurrently, any hyperlinks detected in the email body are evaluated by a hybrid URL analysis module consisting of: (a) lexical heuristics (e.g., protocol checks, obfuscation service detection, raw IP hosting, subdomain depth), and (b) an XGBoost classification model trained on a 651k URL database to predict URL threat categories (phishing, defacement, malware, or benign). Furthermore, a dedicated Email Header and Metadata Spoofing Auditor is integrated to inspect sender credentials. This auditor checks for Display Name spoofing, domain typosquatting using a homoglyph-aware Levenshtein similarity algorithm, corporate brand domain abuse from free webmail providers (e.g., Gmail, Yahoo), and Reply-To header mismatches where the return path is redirected to a different core domain.
+
+### B. Chrome Extension Client-Server Architecture
+To transition PhishGuard AI's analytical capabilities into the user's active browsing workflow, we developed a Google Chrome Extension built on the Manifest V3 specification. 
+Because web extensions operate in a sandboxed JavaScript runtime environment, executing heavy Python models (SVM, XGBoost, and BERT) client-side is unviable. We resolved this constraint by designing a client-server architecture:
+*   **FastAPI REST Server (`api.py`):** The Python models are wrapped in a high-performance REST API hosted locally using FastAPI and Uvicorn, with Cross-Origin Resource Sharing (CORS) enabled.
+*   **Extension Client:** The extension is structured with a content script (`content.js`) that runs in the page DOM to extract text and header attributes from active Gmail or Microsoft Outlook tabs, and a popup window (`popup.html`/`popup.js`) designed with premium glassmorphism styling that queries the backend FastAPI endpoints asynchronously.
+
+### C. Adaptive Continuous Learning & Dynamic Threat Intelligence
+To enable PhishGuard AI to adapt to new phishing campaigns and zero-day threat variants dynamically, we integrated a real-time active learning and feedback pipeline:
+1) *Dynamic Rule Override Database (`models/local_intel.json`):* When a user flags a misclassification or identifies a new threat, the domain and email signature are logged into a local thread intelligence database. Future scans immediately evaluate links and senders against this blacklist, offering sub-millisecond protection.
+2) *User Correction Corpus (`dataset/feedback_data.csv`):* User corrections (e.g., labeling safe mail as phishing or vice versa) are logged to a CSV format feedback file.
+3) *Asynchronous Background Retraining:* When feedback is submitted, the API spawns an asynchronous background thread that merges the baseline Enron dataset with the feedback dataset, re-fits the TF-IDF feature extractor (learning new vocabularies), retrains the LinearSVC model weights, serializes new `.pkl` checkpoints, and clears Streamlit cache loaders to load the updated weights hot-swapped in memory.
 
 ---
 
@@ -247,12 +260,19 @@ The tables below present a comprehensive comparison of model performance on the 
 ## VIII. CONCLUSION & FUTURE DIRECTIONS
 
 ### A. Conclusion
-We have successfully developed, analyzed, and deployed an end-to-end NLP framework for phishing email detection. By systematically implementing rigorous data cleansing, tokenization, stopword elimination, and WordNet-based lemmatization, the raw text was converted into highly descriptive features. Linear SVC combined with TF-IDF features proved to be the most robust architecture, yielding **99.13% accuracy** and a balanced **99.10% F1-score**. Furthermore, a production-grade **Email Header and Metadata Spoofing Auditor** was designed and integrated, executing homoglyph-aware Levenshtein typosquatting checks and Reply-To domain redirect checks to mitigate impersonation and Business Email Compromise (BEC) risks. The integration of Streamlit provides an intuitive, accessible layout for real-time inference.
+We have successfully developed, analyzed, and deployed an end-to-end NLP framework for phishing email detection. By systematically implementing rigorous data cleansing, tokenization, stopword elimination, and WordNet-based lemmatization, the raw text was converted into highly descriptive features. Linear SVC combined with TF-IDF features proved to be the most robust architecture, yielding **99.13% accuracy** and a balanced **99.10% F1-score**. 
+
+Furthermore, we integrated:
+1) An **Email Header and Metadata Spoofing Auditor** executing homoglyph-aware Levenshtein typosquatting checks and Reply-To domain redirect checks to mitigate social engineering and Business Email Compromise (BEC) risks.
+2) A **Manifest V3 Chrome Extension** supported by a **FastAPI REST API Server** to enable real-time active DOM email scanning directly inside browser clients.
+3) An **Adaptive Continuous Learning Pipeline** that updates local threat intelligence databases (`local_intel.json`) instantly and triggers background model retraining upon user feedback submission.
+
+The integration of these modules provides an enterprise-grade, adaptive ecosystem for email security analysis.
 
 ### B. Future Scope
 To improve model robustness and expand capabilities in future iterations, we propose:
 1. **Contextual Deep Learning Architectures:** Evaluate Recurrent Neural Networks (LSTMs) or Transformer-based models (like RoBERTa) to capture contextual semantics and long-range dependencies in email text.
-2. **Active Learning Feedback Loop:** Implement a mechanism within the UI allowing users to report misclassifications, dynamically updating and retraining the models over time.
+2. **Standard Protocols Verification:** Integrate validation checks for email authentication standards—namely SPF (Sender Policy Framework), DKIM (DomainKeys Identified Mail), and DMARC (Domain-based Message Authentication, Reporting, and Conformance)—by inspecting raw email headers.
 3. **Defense Against Adversarial Attacks:** Train models using adversarial samples (e.g., text with intentional typos or hidden characters) to build resilience against evasion techniques.
 
 ---
