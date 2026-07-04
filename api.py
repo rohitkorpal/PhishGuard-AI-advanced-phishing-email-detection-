@@ -16,6 +16,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+GOOGLE_SAFE_BROWSING_API_KEY = os.getenv("GOOGLE_SAFE_BROWSING_API_KEY")
+
 # NLTK Setup
 nltk_data_dir = os.path.expanduser("~/nltk_data")
 if nltk_data_dir not in nltk.data.path:
@@ -411,6 +416,42 @@ def audit_email_headers(display_name: str, email_address: str, reply_to_address:
                 
     return audit_results
 
+def check_google_safe_browsing(url, api_key):
+    if not api_key:
+        return {"is_malicious": False, "threat_types": []}
+        
+    parse_url = url
+    if not parse_url.startswith(("http://", "https://")):
+        parse_url = "http://" + parse_url
+        
+    endpoint = f"https://safebrowsing.googleapis.com/v4/threatMatches:find?key={api_key}"
+    payload = {
+        "client": {
+            "clientId": "phishguard-ai",
+            "clientVersion": "1.0.0"
+        },
+        "threatInfo": {
+            "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"],
+            "platformTypes": ["ANY_PLATFORM"],
+            "threatEntryTypes": ["URL"],
+            "threatEntries": [
+                {"url": parse_url}
+            ]
+        }
+    }
+    print("[Google Safe Browsing] API working...")
+    try:
+        import requests
+        response = requests.post(endpoint, json=payload, timeout=4)
+        if response.status_code == 200:
+            res = response.json()
+            if "matches" in res:
+                threats = [match.get("threatType", "UNKNOWN") for match in res["matches"]]
+                return {"is_malicious": True, "threat_types": threats}
+        return {"is_malicious": False, "threat_types": []}
+    except Exception:
+        return {"is_malicious": False, "threat_types": []}
+
 def scan_urls_in_text(text):
     url_pattern = r'https?://\S+|www\.\S+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}(?:/\S*)?'
     raw_urls = re.findall(url_pattern, text)
@@ -513,6 +554,16 @@ def scan_urls_in_text(text):
                     analysis["status"] = "Danger"
             except Exception:
                 pass
+                
+        # Check Google Safe Browsing API
+        if GOOGLE_SAFE_BROWSING_API_KEY:
+            gsb_res = check_google_safe_browsing(url_clean, GOOGLE_SAFE_BROWSING_API_KEY)
+            if gsb_res["is_malicious"]:
+                threat_labels = ", ".join(gsb_res["threat_types"])
+                analysis["issues"].append(f"🚨 Google Safe Browsing Alert: URL flagged as malicious ({threat_labels}).")
+                analysis["status"] = "Danger"
+            else:
+                analysis["issues"].append("✅ Google Safe Browsing: Verified Clean (Not listed on global threat blocklists).")
                 
         audit_results.append(analysis)
     return audit_results

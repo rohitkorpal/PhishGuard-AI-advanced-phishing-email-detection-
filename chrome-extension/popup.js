@@ -24,6 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const senderName = document.getElementById('sender-name');
   const senderEmail = document.getElementById('sender-email');
   const replyToEmail = document.getElementById('reply-to-email');
+  const mailedByEmail = document.getElementById('mailed-by-email');
   const quickUrl = document.getElementById('quick-url');
   
   // Outputs
@@ -102,7 +103,8 @@ document.addEventListener('DOMContentLoaded', () => {
       text: text,
       sender_name: senderName.value.trim(),
       sender_email: senderEmail.value.trim(),
-      reply_to: replyToEmail.value.trim()
+      reply_to: replyToEmail.value.trim(),
+      mailed_by: mailedByEmail.value.trim()
     });
   });
 
@@ -157,6 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
         sender_name: senderName.value.trim(),
         sender_email: senderEmail.value.trim(),
         reply_to: replyToEmail.value.trim(),
+        mailed_by: mailedByEmail.value.trim(),
         user_label: userLabel
       };
 
@@ -212,6 +215,7 @@ document.addEventListener('DOMContentLoaded', () => {
           senderName.value = data.senderName || '';
           senderEmail.value = data.senderEmail || '';
           replyToEmail.value = data.replyTo || '';
+          mailedByEmail.value = data.mailedBy || '';
           
           // Auto expand headers if we have a sender email
           if (data.senderEmail) {
