@@ -15,18 +15,21 @@ Using the provided dataset `dataset/enron_spam_data.csv` (30,494 unique emails),
 
 1.  **📊 Dataset Insights (Tab 1)**: Visualizes the class balance (52% Ham / 48% Spam) and frequently used terms via side-by-side comparative wordclouds.
 2.  **📈 Model Stats & Performance Visualizations (Tab 2)**: Displays interactive metric explainers, confusion matrix heatmaps with text interpretation, and a quantitative comparison table of the 5 classifiers.
-3.  **🛡️ Unified Dual-Model Verification (Tab 3)**:
-    *   Runs **Support Vector Machine (LinearSVC)** and **BERT (Contextual Embeddings)** simultaneously on the input email.
-    *   Displays a **Consensus Safety Verdict** banner at the top (🚨 Critical Phishing, ⚠️ Suspicious Activity, or ✅ Safe Email).
-    *   Renders side-by-side metrics panels comparing the output, confidence rating, and processing parameters of both models.
-    *   **📧 Advanced Sender Header Audit**: Evaluates sender display names against actual email domain paths to flag Display Name Spoofing, Free Webmail Corporate Abuse, Homoglyph-Aware Levenshtein Typosquatting (e.g., `g00gle.com` or `rnicrosoft.com`), and Reply-To domain redirect attacks.
-    *   **🔗 Hybrid Hyperlink Scanner**: Extracts email hyperlinks and evaluates them via (a) lexical heuristics (HTTP checks, obfuscated shorteners, raw IP hostnames), and (b) a GPU-trained **XGBoost URL Classifier** (trained on 651k URLs).
+3.  **🛡️ Unified Multi-Engine Verification (Tab 3)**:
+    *   **🤖 Stacking Ensemble Model Fusion**: Computes a weighted consensus rating combining **LinearSVC (SVM)** (weight: 40%) and **BERT Contextual Deep Learning** (weight: 60%) to generate a high-confidence stacking fusion score.
+    *   **📧 Advanced Sender Header & DNS Audit**: Evaluates sender display names against actual email domain paths to flag Display Name Spoofing, Free Webmail Corporate Abuse, and Homoglyph-Aware Levenshtein Typosquatting.
+    *   **🌐 DNS Email Authentication Protocol Checks**: Queries sender domain TXT records in real-time via **DNS-over-HTTPS (DoH)** API to verify **SPF** and **DMARC** configurations, alerting if domains lack security authentication.
+    *   **🔗 Hybrid Hyperlink Scanner**: Extracts visible and **hidden embedded links** from active pages.
+    *   **🌐 Google Safe Browsing API Integration**: Submits URL queries directly to Google's live **Safe Browsing v4 Lookup** service to check for global threat listings.
     *   **📄 Download Forensic Report**: Generates and downloads a formal PDF security audit report containing text verdicts, sender metadata verification logs, and link scan details.
-4.  **🔄 Adaptive Continuous Learning (Feedback Loop)**:
+4.  **🛡️ Anti-Evasion Text Preprocessing**:
+    *   Strips zero-width/invisible characters (e.g. `\u200b`, `\u200c`) commonly injected by spammers to bypass keyword filters.
+    *   Normalizes confusable Unicode characters (homoglyphs) back to standard ASCII using `unicodedata.normalize('NFKD')` to resist adversarial character obfuscation.
+5.  **🔄 Adaptive Continuous Learning (Feedback Loop)**:
     *   Allows users (in both Streamlit and the Chrome Extension) to submit verification corrections.
     *   Corrections are appended to the feedback dataset. When submitted, the system triggers an asynchronous background retraining pipeline that re-fits the TF-IDF feature extractor and updates the SVM classification weights on disk.
     *   Uses **Zero-Day Local Threat Intelligence** (`models/local_intel.json`) to instantly block blacklisted sender domains and emails on subsequent scans, bypassing background training latency.
-5.  **⚡ CUDA-GPU Acceleration**:
+6.  **⚡ CUDA-GPU Acceleration**:
     *   Automatically detects local GPUs (`torch.cuda.is_available()`) to load the Hugging Face BERT classifier, accelerating deep learning text classification times.
 
 ---

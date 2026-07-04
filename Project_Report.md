@@ -260,20 +260,20 @@ The tables below present a comprehensive comparison of model performance on the 
 ## VIII. CONCLUSION & FUTURE DIRECTIONS
 
 ### A. Conclusion
-We have successfully developed, analyzed, and deployed an end-to-end NLP framework for phishing email detection. By systematically implementing rigorous data cleansing, tokenization, stopword elimination, and WordNet-based lemmatization, the raw text was converted into highly descriptive features. Linear SVC combined with TF-IDF features proved to be the most robust architecture, yielding **99.13% accuracy** and a balanced **99.10% F1-score**. 
+We have successfully developed, analyzed, and deployed an end-to-end, adaptive NLP and Machine Learning framework for email security auditing, named **PhishGuard AI**. By implementing strict data preprocessing, Term Frequency-Inverse Document Frequency (TF-IDF) feature engineering, and evaluating multiple architectures, the baseline LinearSVC classifier achieved an accuracy of **99.13%** and an F1-score of **99.10%** on benchmark datasets. 
 
-Furthermore, we integrated:
-1) An **Email Header and Metadata Spoofing Auditor** executing homoglyph-aware Levenshtein typosquatting checks and Reply-To domain redirect checks to mitigate social engineering and Business Email Compromise (BEC) risks.
-2) A **Manifest V3 Chrome Extension** supported by a **FastAPI REST API Server** to enable real-time active DOM email scanning directly inside browser clients.
-3) An **Adaptive Continuous Learning Pipeline** that updates local threat intelligence databases (`local_intel.json`) instantly and triggers background model retraining upon user feedback submission.
-
-The integration of these modules provides an enterprise-grade, adaptive ecosystem for email security analysis.
+Furthermore, to create a highly robust security ecosystem, we successfully integrated:
+1. **Weighted Ensemble Stacking Model Fusion:** Combines traditional LinearSVC (40% weight) and BERT Contextual Deep Learning (60% weight) to calculate a unified consensus confidence score, reducing false positives.
+2. **Email Authentication Protocol Verification:** Queries domain TXT records in real-time using public DNS-over-HTTPS (DoH) APIs to evaluate SPF and DMARC status, alerting users of weak setups.
+3. **Anti-Evasion Text Preprocessing:** Strip invisible zero-width spaces and normalizes Cyrillic/Unicode confusable characters (homoglyphs) to standard ASCII equivalents using `unicodedata.normalize('NFKD')`, mitigating evasion attempts.
+4. **Sender metadata & Hybrid Link Audits:** Inspects display name correlation, mailed-by domain relays alignment, and screens visible and hidden embedded hyperlinks using lexical rules and an XGBoost URL booster.
+5. **Interactive Clients & Adaptive Learning:** Supports live scans via a Manifest V3 Chrome Extension and Streamlit dashboard, coupled with a user feedback retraining pipeline and instant Zero-Day threat blacklists.
 
 ### B. Future Scope
-To improve model robustness and expand capabilities in future iterations, we propose:
-1. **Contextual Deep Learning Architectures:** Evaluate Recurrent Neural Networks (LSTMs) or Transformer-based models (like RoBERTa) to capture contextual semantics and long-range dependencies in email text.
-2. **Standard Protocols Verification:** Integrate validation checks for email authentication standards—namely SPF (Sender Policy Framework), DKIM (DomainKeys Identified Mail), and DMARC (Domain-based Message Authentication, Reporting, and Conformance)—by inspecting raw email headers.
-3. **Defense Against Adversarial Attacks:** Train models using adversarial samples (e.g., text with intentional typos or hidden characters) to build resilience against evasion techniques.
+To further expand the security capabilities of the ecosystem, future development will target:
+1. **Automated Inbox Polling (IMAP):** Integrate background inbox listening protocols to automatically inspect incoming mails and segregate suspected spam threads into dedicated secure folders.
+2. **Visual Spoofing Detection (Computer Vision):** Launch headless browsers to capture live screenshots of target URLs, analyzing visual layouts with Deep Learning models to identify exact brand login portal clones.
+3. **Attachment Malware Scan:** Screen document attachments (.pdf, .zip, .exe) using YARA signature rules or public threat databases (e.g. VirusTotal API) to detect static file-level exploits.
 
 ---
 
